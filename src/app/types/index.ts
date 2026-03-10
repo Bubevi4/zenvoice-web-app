@@ -21,6 +21,23 @@ export interface Channel {
   position?: number;
 }
 
+export type MessageAttachment =
+  | {
+      type: 'video_circle';
+      bucket: string;
+      key: string;
+      url: string | null;
+      duration_ms: number;
+      mime_type: string;
+      target_height?: number;
+      target_fps?: number;
+    }
+  | {
+      // запасной вариант для будущих типов вложений
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [key: string]: any;
+    };
+
 export interface Message {
   id: string;
   channelId: string;
@@ -32,7 +49,7 @@ export interface Message {
   content: string | null;
   timestamp: Date;
   created_at?: string;
-  attachments?: unknown[];
+  attachments?: MessageAttachment[];
   reply_to?: string | null;
   edited_at?: string | null;
   deleted_at?: string | null;

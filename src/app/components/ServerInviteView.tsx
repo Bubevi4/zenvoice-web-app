@@ -39,12 +39,18 @@ export function ServerInviteView({ token, onBack, onJoined }: ServerInviteViewPr
   }, [token]);
 
   const handleJoin = async () => {
+    if (!info) return;
     setJoining(true);
     try {
       const server = await chatApi.joinByInvite(token);
       toast.success(`Вы вступили на сервер «${server.name}»`);
       await onJoined(server.id);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 400 && e.message?.includes('Already a member')) {
+        toast.info('Вы уже состоите на этом сервере');
+        await onJoined(info.server_id);
+        return;
+      }
       toast.error(e instanceof ApiError ? e.message : 'Не удалось вступить');
     } finally {
       setJoining(false);

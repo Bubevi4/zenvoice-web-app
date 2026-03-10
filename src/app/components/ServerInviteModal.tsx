@@ -30,19 +30,24 @@ interface ServerInviteModalProps {
 export function ServerInviteModal({ open, serverId, serverName, onClose }: ServerInviteModalProps) {
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
+  const [oneTime, setOneTime] = useState(false);
 
   const inviteUrl = useMemo(() => {
     if (!token) return '';
-    return `${window.location.origin}/#/invite/${encodeURIComponent(token)}`;
+    // Короткий, удобный формат ссылки: /i/<token>
+    return `${window.location.origin}/#/i/${encodeURIComponent(token)}`;
   }, [token]);
 
   useEffect(() => {
     if (!open) {
       setToken(null);
+      setExpiresAt(null);
       setDmChannels([]);
       setSendingTo(null);
+      setOneTime(false);
       return;
     }
     if (!serverId) return;
@@ -50,6 +55,7 @@ export function ServerInviteModal({ open, serverId, serverName, onClose }: Serve
     Promise.all([chatApi.createServerInvite(serverId), chatApi.getDmChannels()])
       .then(([inv, dms]) => {
         setToken(inv.token);
+        setExpiresAt(inv.expires_at ?? null);
         setDmChannels(dms);
       })
       .catch((e) => {
@@ -116,6 +122,31 @@ export function ServerInviteModal({ open, serverId, serverName, onClose }: Serve
                 <Copy className="w-4 h-4" />
               </Button>
             </div>
+            {expiresAt && (
+              <p className="mt-1 text-xs text-gray-500">
+                Ссылка будет недействительна{' '}
+                {new Date(expiresAt).toLocaleString('ru-RU', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              id="one-time-invite"
+              type="checkbox"
+              checked={oneTime}
+              onChange={(e) => setOneTime(e.target.checked)}
+              className="w-4 h-4 rounded border-white/20 bg-transparent"
+            />
+            <label htmlFor="one-time-invite" className="text-sm text-gray-300 select-none">
+              Одноразовая ссылка (MVP, пока без ограничения по числу использований)
+            </label>
           </div>
 
           <div>

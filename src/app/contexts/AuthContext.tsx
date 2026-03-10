@@ -3,7 +3,7 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { setTokenGetter } from '../api/client';
+import { ApiError, setTokenGetter } from '../api/client';
 import * as authApi from '../api/auth';
 import type { User } from '../models';
 
@@ -67,24 +67,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTokenGetter(() => state.accessToken);
   }, [state.accessToken]);
 
+  const logout = useCallback(() => {
+    setState({
+      user: null,
+      accessToken: null,
+      refreshToken: null,
+      isReady: true,
+    });
+    saveStored(null, null, null);
+  }, []);
+
   const refreshAccessToken = useCallback(async (): Promise<boolean> => {
     const refresh = state.refreshToken ?? localStorage.getItem(REFRESH_KEY);
-    if (!refresh) return false;
+    const storedUser = state.user ?? loadStored().user ?? null;
+    // Если пользователя нет совсем (экран логина) или нет refresh-токена — не дергаем API.
+    if (!refresh || !storedUser) {
+      logout();
+      return false;
+    }
     try {
       const res = await authApi.refreshToken(refresh);
-      const user = state.user ?? (loadStored().user ?? null);
       setState((s) => ({
         ...s,
         accessToken: res.access_token,
         refreshToken: res.refresh_token,
-        user,
+        user: storedUser,
       }));
-      saveStored(res.access_token, res.refresh_token, user);
+      saveStored(res.access_token, res.refresh_token, storedUser);
       return true;
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        logout();
+      } else {
+        logout();
+      }
       return false;
     }
-  }, [state.refreshToken, state.user]);
+  }, [state.refreshToken, state.user, logout]);
 
   useEffect(() => {
     const stored = loadStored();
@@ -135,16 +154,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isReady: true,
     });
     saveStored(res.access_token, res.refresh_token, user);
-  }, []);
-
-  const logout = useCallback(() => {
-    setState({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      isReady: true,
-    });
-    saveStored(null, null, null);
   }, []);
 
   const setUser = useCallback((userOrUpdater: User | null | ((prev: User | null) => User | null)) => {

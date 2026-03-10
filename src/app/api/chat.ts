@@ -65,9 +65,11 @@ export async function createChannel(
   });
 }
 
-export async function createServerInvite(serverId: string): Promise<{ token: string }> {
-  const raw = await apiPost<{ token: string }>(`${CHAT_PREFIX}/invites/servers/${serverId}`);
-  return { token: raw.token };
+export async function createServerInvite(serverId: string): Promise<{ token: string; expires_at?: string | null }> {
+  const raw = await apiPost<{ token: string; expires_at?: string | null }>(
+    `${CHAT_PREFIX}/invites/servers/${serverId}`
+  );
+  return { token: raw.token, expires_at: raw.expires_at ?? null };
 }
 
 export async function getInviteInfo(token: string): Promise<{
@@ -201,7 +203,14 @@ export async function postVideoCircleMessage(
   durationMs: number
 ): Promise<Message> {
   const form = new FormData();
-  form.append('file', file, 'video-circle.webm');
+  const type = file.type || '';
+  let extension = 'webm';
+  if (type.includes('mp4')) {
+    extension = 'mp4';
+  } else if (type.includes('quicktime') || type.includes('mov')) {
+    extension = 'mov';
+  }
+  form.append('file', file, `video-circle.${extension}`);
   form.append('duration_ms', String(Math.max(0, Math.floor(durationMs))));
 
   const raw = await apiPostForm<{
@@ -217,6 +226,40 @@ export async function postVideoCircleMessage(
     author_username?: string | null;
     author_avatar_url?: string | null;
   }>(`${CHAT_PREFIX}/messages/channels/${channelId}/video-circle`, form);
+
+  return mapApiMessageToMessage(
+    {
+      ...raw,
+      created_at: raw.created_at,
+    },
+    channelId
+  );
+}
+
+export async function postAttachments(
+  channelId: string,
+  files: File[],
+  content?: string
+): Promise<Message> {
+  const form = new FormData();
+  files.forEach((file) => form.append('files', file));
+  if (content && content.trim()) {
+    form.append('content', content.trim());
+  }
+
+  const raw = await apiPostForm<{
+    id: string;
+    channel_id: string;
+    user_id: string;
+    content: string | null;
+    created_at: string;
+    edited_at?: string | null;
+    deleted_at?: string | null;
+    attachments?: unknown[];
+    reply_to?: string | null;
+    author_username?: string | null;
+    author_avatar_url?: string | null;
+  }>(`${CHAT_PREFIX}/messages/channels/${channelId}/attachments`, form);
 
   return mapApiMessageToMessage(
     {

@@ -45,6 +45,9 @@ export function HomeView({
   const [activeDmId, setActiveDmId] = useState<string | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [messages, setMessages] = useState<Message[]>([]);
+  const [historyState, setHistoryState] = useState<
+    Record<string, { cursor: string | null; hasMore: boolean }>
+  >({});
   const [loadingDms, setLoadingDms] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -264,8 +267,14 @@ export function HomeView({
     }
     setLoadingMessages(true);
     chatApi
-      .getMessageHistory(activeDmId)
-      .then(({ items }) => setMessages(items))
+      .getMessageHistory(activeDmId, 50)
+      .then(({ items, nextCursor, hasMore }) => {
+        setMessages(items);
+        setHistoryState((prev) => ({
+          ...prev,
+          [activeDmId]: { cursor: nextCursor, hasMore },
+        }));
+      })
       .catch(async (e) => {
         if (e instanceof ApiError && e.status === 401) {
           const ok = await onRefreshToken();
@@ -281,6 +290,41 @@ export function HomeView({
       })
       .finally(() => setLoadingMessages(false));
   }, [activeDmId, onRefreshToken, loadDmChannels]);
+
+  const handleLoadMoreMessages = useCallback(async () => {
+    if (!activeDmId) return;
+    const state = historyState[activeDmId];
+    if (!state || !state.hasMore || !state.cursor) return;
+    try {
+      const { items, nextCursor, hasMore } = await chatApi.getMessageHistory(
+        activeDmId,
+        50,
+        state.cursor
+      );
+      if (items.length === 0) {
+        setHistoryState((prev) => ({
+          ...prev,
+          [activeDmId]: { cursor: null, hasMore: false },
+        }));
+        return;
+      }
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const unique = items.filter((m) => !existingIds.has(m.id));
+        return [...unique, ...prev];
+      });
+      setHistoryState((prev) => ({
+        ...prev,
+        [activeDmId]: { cursor: nextCursor, hasMore },
+      }));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        const ok = await onRefreshToken();
+        if (ok) return handleLoadMoreMessages();
+        onLogout();
+      }
+    }
+  }, [activeDmId, historyState, onRefreshToken, onLogout]);
 
   // Подписка по WebSocket на активный DM‑канал
   useEffect(() => {
@@ -533,6 +577,7 @@ export function HomeView({
               messages={messages}
               onSendMessage={handleSendMessage}
               onSendVideoCircle={handleSendVideoCircle}
+              onLoadMore={handleLoadMoreMessages}
               loading={loadingMessages}
             />
           </>

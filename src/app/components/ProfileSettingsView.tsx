@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Save, User } from 'lucide-react';
+import { ArrowLeft, Check, User } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useAuth } from '../contexts/AuthContext';
@@ -120,8 +120,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
     // eslint-disable-next-line react-hooks/exhaustive-deps -- загрузка только при монтировании; onRefreshToken/onLogout не в deps, чтобы не было цикла
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
     const finalAvatar = avatarEmoji ? `emoji:${avatarEmoji}` : (avatarUrl.trim() || null);
     setSaving(true);
     try {
@@ -160,120 +159,128 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#1a1a1f] text-white">
-      <div className="flex items-center gap-3 p-4 border-b border-white/5">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-          aria-label="Назад"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <h1 className="text-lg font-semibold">Настройки профиля</h1>
-      </div>
-
-      <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-4 md:p-6 max-w-xl mx-auto w-full space-y-6">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-4xl overflow-hidden shadow-lg">
-            {avatarEmoji ? (
-              <span>{avatarEmoji}</span>
-            ) : avatarUrl ? (
-              <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <User className="w-12 h-12 text-white/80" />
-            )}
-          </div>
-          <p className="text-sm text-gray-400">Аватар (URL или emoji)</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Ссылка на аватар</label>
-          <Input
-            value={avatarUrl}
-            onChange={(e) => {
-              setAvatarUrl(e.target.value);
-              if (e.target.value.trim()) setAvatarEmoji('');
-            }}
-            placeholder="https://..."
-            className="bg-[#2a2a32] border-white/10 text-white"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Или выберите emoji</label>
-          <div className="flex flex-wrap gap-2">
-            {EMOJI_OPTIONS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => {
-                  setAvatarEmoji(emoji);
-                  setAvatarUrl('');
-                }}
-                className={`w-10 h-10 rounded-lg text-2xl flex items-center justify-center transition-colors ${
-                  avatarEmoji === emoji ? 'bg-violet-600 ring-2 ring-violet-400' : 'bg-[#2a2a32] hover:bg-white/10'
-                }`}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-          {avatarEmoji && (
+    <div className="min-h-screen flex flex-col bg-[#1a1a1f] text-white">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSave();
+        }}
+        className="flex flex-col"
+      >
+        <div className="flex items-center justify-between gap-3 p-4 border-b border-white/5">
+          <div className="flex items-center gap-3">
             <button
+              onClick={onBack}
+              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Назад"
               type="button"
-              onClick={() => setAvatarEmoji('')}
-              className="mt-2 text-sm text-gray-400 hover:text-white"
             >
-              Убрать emoji
+              <ArrowLeft className="w-5 h-5" />
             </button>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Имя пользователя</label>
-          <Input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-            className="bg-[#2a2a32] border-white/10 text-white"
-            minLength={2}
-            maxLength={32}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Тег (nametag)</label>
-          <Input
-            value={nametag}
-            onChange={(e) => setNametag(e.target.value)}
-            placeholder="@nametag"
-            className="bg-[#2a2a32] border-white/10 text-white"
-            minLength={2}
-            maxLength={32}
-          />
-          <p className="text-xs text-gray-500 mt-1">По тегу вас находят в поиске</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="email@example.com"
-            className="bg-[#2a2a32] border-white/10 text-white"
-          />
-        </div>
-
-        <div className="pt-4">
-          <Button
+            <h1 className="text-lg font-semibold">Настройки профиля</h1>
+          </div>
+          <button
             type="submit"
             disabled={saving}
-            className="w-full bg-violet-600 hover:bg-violet-500 text-white"
+            className="p-2 rounded-full bg-green-500/20 hover:bg-green-500/30 border border-green-400/60 text-green-400 transition-colors disabled:opacity-60"
+            aria-label="Сохранить профиль"
           >
-            <Save className="w-4 h-4 mr-2" />
-            {saving ? 'Сохранение...' : 'Сохранить'}
-          </Button>
+            <Check className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 md:p-6 max-w-xl mx-auto w-full space-y-6">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-4xl overflow-hidden shadow-lg">
+              {avatarEmoji ? (
+                <span>{avatarEmoji}</span>
+              ) : avatarUrl ? (
+                <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-12 h-12 text-white/80" />
+              )}
+            </div>
+            <p className="text-sm text-gray-400">Аватар (URL или emoji)</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Ссылка на аватар</label>
+            <Input
+              value={avatarUrl}
+              onChange={(e) => {
+                setAvatarUrl(e.target.value);
+                if (e.target.value.trim()) setAvatarEmoji('');
+              }}
+              placeholder="https://..."
+              className="bg-[#2a2a32] border-white/10 text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Или выберите emoji</label>
+            <div className="flex flex-wrap gap-2">
+              {EMOJI_OPTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    setAvatarEmoji(emoji);
+                    setAvatarUrl('');
+                  }}
+                  className={`w-10 h-10 rounded-lg text-2xl flex items-center justify-center transition-colors ${
+                    avatarEmoji === emoji ? 'bg-violet-600 ring-2 ring-violet-400' : 'bg-[#2a2a32] hover:bg-white/10'
+                  }`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            {avatarEmoji && (
+              <button
+                type="button"
+                onClick={() => setAvatarEmoji('')}
+                className="mt-2 text-sm text-gray-400 hover:text-white"
+              >
+                Убрать emoji
+              </button>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Имя пользователя</label>
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              className="bg-[#2a2a32] border-white/10 text-white"
+              minLength={2}
+              maxLength={32}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Тег (nametag)</label>
+            <Input
+              value={nametag}
+              onChange={(e) => setNametag(e.target.value)}
+              placeholder="@nametag"
+              className="bg-[#2a2a32] border-white/10 text-white"
+              minLength={2}
+              maxLength={32}
+            />
+            <p className="text-xs text-gray-500 mt-1">По тегу вас находят в поиске</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="email@example.com"
+              className="bg-[#2a2a32] border-white/10 text-white"
+            />
+          </div>
         </div>
       </form>
     </div>

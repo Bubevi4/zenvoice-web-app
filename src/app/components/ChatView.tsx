@@ -1,29 +1,59 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Hash, Users, Search, Pin, Smile, Send, Paperclip, Mic } from 'lucide-react';
+import { Hash, Users, Search, Pin, Smile, Send, Paperclip, Mic, Camera } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Message, Channel } from '../models';
 import { UserAvatar } from './UserAvatar';
+import * as chatApi from '../api/chat';
+import { useIsMobile } from './ui/use-mobile';
 
 interface ChatViewProps {
   channel: Channel;
   messages: Message[];
   onSendMessage: (content: string) => void;
+  onSendVideoCircle?: (file: Blob, durationMs: number) => void;
+  onLoadMore?: () => void;
   loading?: boolean;
 }
 
-export function ChatView({ channel, messages, onSendMessage, loading }: ChatViewProps) {
+export function ChatView({
+  channel,
+  messages,
+  onSendMessage,
+  onSendVideoCircle,
+  onLoadMore,
+  loading,
+}: ChatViewProps) {
   const [inputValue, setInputValue] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [activeCircleId, setActiveCircleId] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const recordStartedAtRef = useRef<number | null>(null);
+  const circleVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const overlayCircleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const isMobile = useIsMobile();
+  const isTouchDevice =
+    typeof window !== 'undefined' &&
+    (('ontouchstart' in window) || (navigator as any).maxTouchPoints > 0);
+  const recordPressTimeoutRef = useRef<number | null>(null);
 
-  // При заходе в диалог (смена channel) и при новых сообщениях — прокрутка к последнему сообщению.
+  // При заходе в диалог и при появлении нового последнего сообщения —
+  // прокрутка к низу (не трогаем скролл при подгрузке истории сверху).
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [channel.id, messages]);
+  }, [channel.id, messages[messages.length - 1]?.id]);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
       onSendMessage(inputValue);
       setInputValue('');
+      setShowEmojiPicker(false);
     }
   };
   
@@ -31,9 +61,173 @@ export function ChatView({ channel, messages, onSendMessage, loading }: ChatView
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const cleanupMedia = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.onstop = null;
+    }
+    mediaRecorderRef.current = null;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    mediaStreamRef.current = null;
+    recordChunksRef.current = [];
+    recordStartedAtRef.current = null;
+  };
+
+  const startVideoRecording = async () => {
+    if (!onSendVideoCircle || channel.type !== 'dm') {
+      toast.info('Видеосообщения доступны только в личных сообщениях');
+      return;
+    }
+    if (!isTouchDevice) {
+      toast.info('Запись видеосообщений доступна только на мобильных устройствах');
+      return;
+    }
+    if (isRecording) return;
+
+    try {
+      if (
+        typeof navigator === 'undefined' ||
+        !navigator.mediaDevices ||
+        typeof navigator.mediaDevices.getUserMedia !== 'function' ||
+        typeof MediaRecorder === 'undefined'
+      ) {
+        if (videoInputRef.current) {
+          videoInputRef.current.click();
+          return;
+        }
+        toast.error('Запись видео не поддерживается в этом браузере');
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      mediaStreamRef.current = stream;
+      let mimeType = 'video/webm;codecs=vp8';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('video/mp4;codecs=h264')) {
+          mimeType = 'video/mp4;codecs=h264';
+        }
+      }
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recordChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const startedAt = recordStartedAtRef.current;
+        const durationMs = startedAt ? Date.now() - startedAt : 0;
+        const blob = new Blob(recordChunksRef.current, { type: mimeType });
+        cleanupMedia();
+        setIsRecording(false);
+        if (blob.size === 0) return;
+        void onSendVideoCircle(blob, durationMs);
+      };
+      mediaRecorderRef.current = recorder;
+      recordStartedAtRef.current = Date.now();
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      cleanupMedia();
+      const message =
+        err instanceof DOMException && err.name === 'NotAllowedError'
+          ? 'Доступ к камере/микрофону запрещён'
+          : 'Не удалось запустить запись видео';
+      toast.error(message);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (!isRecording) return;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupMedia();
+      setIsRecording(false);
+    }
+  };
+
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Сбрасываем value, чтобы можно было выбрать тот же файл ещё раз
+    e.target.value = '';
+    if (!file) return;
+
+    if (!onSendVideoCircle || channel.type !== 'dm') {
+      toast.info('Видеосообщения доступны только в личных сообщениях');
+      return;
+    }
+
+    // Пока не считаем точную длительность — backend корректно обрабатывает duration_ms = 0.
+    void onSendVideoCircle(file, 0);
+  };
+
+  const handleVoiceRecordPressStart = () => {
+    if (!isMobile || channel.type !== 'dm') return;
+    if (inputValue.trim()) return;
+    toast.info('Голосовые сообщения пока в разработке');
+  };
+
+  const handleVoiceRecordPressEnd = () => {
+    // Заглушка под будущее внедрение записи голоса
+  };
+
+  const handleVideoRecordPressStart = () => {
+    if (!isMobile || channel.type !== 'dm') return;
+    if (inputValue.trim()) return;
+    void startVideoRecording();
+  };
+
+  const handleVideoRecordPressEnd = () => {
+    if (!isMobile || channel.type !== 'dm') return;
+    if (isRecording) {
+      stopVideoRecording();
+    }
+  };
+
   /** Ключ минуты для группировки: один блок на одного пользователя в одну минуту. */
   const minuteKey = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}`;
+
+  const pauseAllCircleVideos = () => {
+    Object.values(circleVideoRefs.current).forEach((video) => {
+      if (!video) return;
+      video.muted = true;
+      video.pause();
+    });
+  };
+
+  const handleCircleClick = (messageId: string) => {
+    if (activeCircleId === messageId) {
+      setActiveCircleId(null);
+      pauseAllCircleVideos();
+      if (overlayCircleVideoRef.current) {
+        overlayCircleVideoRef.current.pause();
+        overlayCircleVideoRef.current.currentTime = 0;
+      }
+    } else {
+      setActiveCircleId(messageId);
+      pauseAllCircleVideos();
+    }
+  };
+
+  const handleAttachFiles = async (files: File[]) => {
+    if (!files.length) return;
+    if (!channel.id) return;
+    try {
+      await chatApi.postAttachments(channel.id, files);
+      toast.success('Файлы отправлены');
+    } catch (e) {
+      toast.error('Не удалось отправить файлы');
+    }
+  };
+
+  const EMOJIS = ['😀', '😁', '😂', '😍', '👍', '🔥', '❤️', '🙏', '🎧', '🎥', '😉', '😎'];
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#1a1a1f]">
@@ -57,7 +251,23 @@ export function ChatView({ channel, messages, onSendMessage, loading }: ChatView
       </div>
       
       {/* Messages — скроллируемая область, можно листать историю */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 md:px-4 py-3 md:py-4 space-y-3 md:space-y-4">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-3 md:px-4 py-3 md:py-4 space-y-3 md:space-y-4"
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const files = Array.from(e.dataTransfer.files || []);
+          void handleAttachFiles(files);
+        }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop < 80) {
+            onLoadMore?.();
+          }
+        }}
+      >
         {loading ? (
           <div className="flex items-center justify-center py-8 text-gray-400">Загрузка сообщений...</div>
         ) : (
@@ -126,9 +336,130 @@ export function ChatView({ channel, messages, onSendMessage, loading }: ChatView
                         </span>
                       </div>
                     )}
-                    <p className="text-gray-200 text-[14px] md:text-[15px] break-words break-all leading-relaxed min-w-0">
-                      {message.content ?? ''}
-                    </p>
+                        {message.attachments && message.attachments.length > 0 ? (
+                      <div className="space-y-2">
+                        {message.attachments.map((att: any, idx: number) => {
+                          if (!att) return null;
+                          if (att.type === 'video_circle' && idx === 0) {
+                            return (
+                              <div
+                                key={`${message.id}-circle`}
+                                className="inline-flex items-center justify-center rounded-full bg-black/40 overflow-hidden w-32 h-32 md:w-40 md:h-40 cursor-pointer group/video"
+                                onClick={() => handleCircleClick(message.id)}
+                              >
+                                <video
+                                  ref={(el) => {
+                                    circleVideoRefs.current[message.id] = el;
+                                  }}
+                                  src={att.url ?? ''}
+                                  muted
+                                  playsInline
+                                  loop
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            );
+                          }
+                          if (att.type === 'image') {
+                            return (
+                              <div key={`${message.id}-img-${idx}`} className="inline-block max-w-xs rounded-xl overflow-hidden border border-white/10 bg-black/20">
+                                <img
+                                  src={att.url ?? ''}
+                                  alt={att.filename ?? 'image'}
+                                  className="max-h-72 w-full object-contain"
+                                />
+                              </div>
+                            );
+                          }
+                          if (att.type === 'video') {
+                            return (
+                              <div
+                                key={`${message.id}-video-${idx}`}
+                                className="inline-block max-w-xs rounded-xl overflow-hidden border border-white/10 bg-black/30"
+                              >
+                                <video
+                                  src={att.url ?? ''}
+                                  controls
+                                  playsInline
+                                  className="max-h-72 w-full object-contain bg-black"
+                                />
+                              </div>
+                            );
+                          }
+                          if (att.type === 'file') {
+                            const filename: string = att.filename ?? 'file';
+                            const dotIndex = filename.lastIndexOf('.');
+                            const baseName =
+                              dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+                            const ext =
+                              dotIndex > 0 ? filename.slice(dotIndex + 1).toUpperCase() : '';
+                            return (
+                              <a
+                                key={`${message.id}-file-${idx}`}
+                                href={att.url ?? '#'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[#22222b] border border-white/10 hover:border-violet-500/60 hover:bg-[#262636] transition-colors max-w-xs"
+                              >
+                                <div className="w-8 h-8 rounded-md bg-violet-600/80 flex items-center justify-center text-xs font-semibold">
+                                  {ext || 'FILE'}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-sm text-white truncate">{baseName}</div>
+                                  {ext && (
+                                    <div className="text-[11px] text-gray-400 uppercase">
+                                      {ext} файл
+                                    </div>
+                                  )}
+                                </div>
+                              </a>
+                            );
+                          }
+                          return null;
+                        })}
+                        {message.content && (
+                          <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 selectable-text">
+                            {message.content
+                              .split(/(https?:\/\/[^\s]+)/g)
+                              .map((part, idx) =>
+                                /^https?:\/\//.test(part) ? (
+                                  <a
+                                    key={idx}
+                                    href={part}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-violet-400 hover:underline break-all"
+                                  >
+                                    {part}
+                                  </a>
+                                ) : (
+                                  <span key={idx}>{part}</span>
+                                )
+                              )}
+                          </p>
+                        )}
+                      </div>
+                ) : (
+                  <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 selectable-text">
+                    {message.content
+                      ?.split(/(https?:\/\/[^\s]+)/g)
+                      .map((part, idx) =>
+                        /^https?:\/\//.test(part) ? (
+                          <a
+                            key={idx}
+                            href={part}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-violet-400 hover:underline break-all"
+                          >
+                            {part}
+                          </a>
+                        ) : (
+                          <span key={idx}>{part}</span>
+                        )
+                      ) ?? ''}
+                  </p>
+                )}
                   </div>
                 </div>
               </div>
@@ -137,47 +468,153 @@ export function ChatView({ channel, messages, onSendMessage, loading }: ChatView
         )}
         <div ref={messagesEndRef} />
       </div>
-      
-      {/* Message input */}
+      {/* Overlay для активного кружка */}
+      {activeCircleId && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center"
+          onClick={() => {
+            setActiveCircleId(null);
+            pauseAllCircleVideos();
+            if (overlayCircleVideoRef.current) {
+              overlayCircleVideoRef.current.pause();
+              overlayCircleVideoRef.current.currentTime = 0;
+            }
+          }}
+        >
+          {messages
+            .filter((m) => m.id === activeCircleId)
+            .map((m) => {
+              const att = m.attachments?.[0] as any;
+              if (!att || att.type !== 'video_circle') return null;
+              return (
+                <div
+                  key={m.id}
+                  className="relative w-[320px] h-[320px] md:w-[380px] md:h-[380px] rounded-full overflow-hidden bg-black"
+                >
+                  <video
+                    ref={overlayCircleVideoRef}
+                    src={att.url ?? ''}
+                    autoPlay
+                    playsInline
+                    muted={false}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {/* Message input + media / voice-video controls */}
       <div className="p-3 md:p-4">
         <form onSubmit={handleSubmit} className="relative">
-          <div className="bg-[#2a2a32] rounded-lg border border-white/5 focus-within:border-violet-500/50 transition-colors">
-            <div className="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2.5 md:py-3">
-              <button
-                type="button"
-                className="p-1 hover:bg-white/10 rounded transition-colors"
-              >
-                <Paperclip className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
-              </button>
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder={channel.type === 'dm' ? `Написать ${channel.name}` : `Написать в #${channel.name}`}
-                className="flex-1 bg-transparent text-gray-200 placeholder-gray-500 outline-none text-[14px] md:text-[15px]"
-              />
-              <button
-                type="button"
-                className="p-1 hover:bg-white/10 rounded transition-colors"
-              >
-                <Smile className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
-              </button>
-              <button
-                type="button"
-                className="p-1 hover:bg-white/10 rounded transition-colors"
-              >
-                <Mic className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
-              </button>
-              {inputValue.trim() && (
+          <div className="flex items-end gap-2 md:gap-3">
+            {/* Big media attach button (outside input) */}
+            <button
+              type="button"
+              onClick={() => attachInputRef.current?.click()}
+              className="flex-shrink-0 h-11 w-11 md:h-12 md:w-12 rounded-full bg-[#2a2a32] border border-white/10 flex items-center justify-center hover:bg-white/10 hover:border-violet-500/60 transition-colors shadow-sm"
+            >
+              <Paperclip className="w-5 h-5 md:w-6 md:h-6 text-gray-300" />
+            </button>
+
+            {/* Text input with emoji and send (send button слева внутри поля) */}
+            <div className="flex-1 bg-[#2a2a32] rounded-lg border border-white/5 focus-within:border-violet-500/50 transition-colors">
+              <div className="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2.5 md:py-3">
+                {inputValue.trim() && (
+                  <button
+                    type="submit"
+                    className="mr-1 flex-shrink-0 p-1.5 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 transition-all shadow-lg"
+                    aria-label="Отправить сообщение"
+                  >
+                    <Send className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                  </button>
+                )}
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder={
+                    channel.type === 'dm'
+                      ? `Написать ${channel.name}`
+                      : `Написать в #${channel.name}`
+                  }
+                  className="flex-1 bg-transparent text-gray-200 placeholder-gray-500 outline-none text-[14px] md:text-[15px]"
+                />
                 <button
-                  type="submit"
-                  className="p-1.5 bg-gradient-to-r from-violet-600 to-purple-600 rounded-md hover:from-violet-500 hover:to-purple-500 transition-all shadow-lg hover:shadow-violet-500/50"
+                  type="button"
+                  onClick={() => setShowEmojiPicker((v) => !v)}
+                  className="p-1 hover:bg-white/10 rounded transition-colors"
                 >
-                  <Send className="w-4 h-4 text-white" />
+                  <Smile className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
                 </button>
-              )}
+              </div>
             </div>
+
+            {/* Voice / video record buttons — только на мобильных устройствах и в ЛС */}
+            {isMobile && channel.type === 'dm' && (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onMouseDown={handleVoiceRecordPressStart}
+                  onMouseUp={handleVoiceRecordPressEnd}
+                  onMouseLeave={handleVoiceRecordPressEnd}
+                  onTouchStart={handleVoiceRecordPressStart}
+                  onTouchEnd={handleVoiceRecordPressEnd}
+                  className="flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2a2a32] border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
+                  aria-label="Записать голосовое сообщение"
+                >
+                  <Mic className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={handleVideoRecordPressStart}
+                  onMouseUp={handleVideoRecordPressEnd}
+                  onMouseLeave={handleVideoRecordPressEnd}
+                  onTouchStart={handleVideoRecordPressStart}
+                  onTouchEnd={handleVideoRecordPressEnd}
+                  className="flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-full bg-gradient-to-tr from-violet-700 to-purple-700 flex items-center justify-center shadow-lg hover:from-violet-500 hover:to-purple-500 transition-all"
+                  aria-label="Записать видеосообщение"
+                >
+                  <Camera className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                </button>
+              </div>
+            )}
           </div>
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            capture="user"
+            className="hidden"
+            onChange={handleVideoFileChange}
+          />
+          <input
+            ref={attachInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              e.target.value = '';
+              void handleAttachFiles(files);
+            }}
+          />
+          {showEmojiPicker && (
+            <div className="absolute bottom-16 left-14 md:left-16 z-20 rounded-xl bg-[#1f1f27] border border-white/10 p-2 flex flex-wrap gap-1 w-56 shadow-xl">
+              {EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-lg"
+                  onClick={() => setInputValue((prev) => prev + emoji)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
         </form>
       </div>
     </div>

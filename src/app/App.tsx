@@ -30,6 +30,9 @@ export default function App() {
   const [servers, setServers] = useState<Server[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messageHistoryState, setMessageHistoryState] = useState<
+    Record<string, { cursor: string | null; hasMore: boolean }>
+  >({});
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -64,11 +67,11 @@ export default function App() {
   const popOverlay = () =>
     setOverlayStack((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
 
-  // Hash-роутинг для инвайтов: /#/invite/<token>
+  // Hash-роутинг для инвайтов: /#/i/<token>
   useEffect(() => {
     const parse = () => {
       const h = window.location.hash || '';
-      const m = h.match(/^#\/invite\/(.+)$/);
+      const m = h.match(/^#\/i\/(.+)$/);
       setPendingInviteToken(m ? decodeURIComponent(m[1]) : null);
     };
     parse();
@@ -270,8 +273,14 @@ export default function App() {
     }
     setLoadingMessages(true);
     chatApi
-      .getMessageHistory(activeChannelId)
-      .then(({ items }) => setMessages(items))
+      .getMessageHistory(activeChannelId, 50)
+      .then(({ items, nextCursor, hasMore }) => {
+        setMessages(items);
+        setMessageHistoryState((prev) => ({
+          ...prev,
+          [activeChannelId]: { cursor: nextCursor, hasMore },
+        }));
+      })
       .catch(async (e) => {
         if (e instanceof ApiError && e.status === 401) {
           const ok = await refreshAccessToken();
@@ -287,6 +296,41 @@ export default function App() {
       })
       .finally(() => setLoadingMessages(false));
   }, [activeChannelId, accessToken, refreshAccessToken, loadServers]);
+
+  const handleLoadMoreMessages = async () => {
+    if (!activeChannelId || !accessToken) return;
+    const state = messageHistoryState[activeChannelId];
+    if (!state || !state.hasMore || !state.cursor) return;
+    try {
+      const { items, nextCursor, hasMore } = await chatApi.getMessageHistory(
+        activeChannelId,
+        50,
+        state.cursor
+      );
+      if (items.length === 0) {
+        setMessageHistoryState((prev) => ({
+          ...prev,
+          [activeChannelId]: { cursor: null, hasMore: false },
+        }));
+        return;
+      }
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const unique = items.filter((m) => !existingIds.has(m.id));
+        return [...unique, ...prev];
+      });
+      setMessageHistoryState((prev) => ({
+        ...prev,
+        [activeChannelId]: { cursor: nextCursor, hasMore },
+      }));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        const ok = await refreshAccessToken();
+        if (ok) return handleLoadMoreMessages();
+        logout();
+      }
+    }
+  };
 
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const serverChannels = channels.filter((c) => c.serverId === activeServerId || c.server_id === activeServerId);
@@ -632,7 +676,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-full min-h-0 flex bg-[#1a1a1f] text-white overflow-hidden md:h-screen">
+    <div className="h-full min-h-0 flex bg-[#1a1a1f] text-white overflow-hidden md:h-screen no-select">
       <div
         className={
           isHomeView
@@ -738,6 +782,7 @@ export default function App() {
                     messages={channelMessages}
                     onSendMessage={handleSendMessage}
                     loading={loadingMessages}
+                    onLoadMore={handleLoadMoreMessages}
                   />
                 ) : (
                   <VoiceChannelView
