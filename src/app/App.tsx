@@ -15,14 +15,18 @@ import { CreateChannelModal } from './components/CreateChannelModal';
 import { ServerInviteModal } from './components/ServerInviteModal';
 import { ServerInviteView } from './components/ServerInviteView';
 import { ServerSettingsView } from './components/ServerSettingsView';
+import { LandingView } from './components/LandingView';
 import { useAuth } from './contexts/AuthContext';
+import { VoiceConnection } from './voice/mediasoupClient';
 import * as chatApi from './api/chat';
-import type { Server, Channel, Message } from './models';
+import type { Server, Channel, Message, VoiceUser } from './models';
 import { mapApiMessageToMessage } from './models';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { ApiError } from './api/client';
 import { useIsMobile } from './components/ui/use-mobile';
+
+
 
 export default function App() {
   const { accessToken, user, logout, refreshAccessToken } = useAuth();
@@ -57,10 +61,14 @@ export default function App() {
   const [loadingChannels, setLoadingChannels] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
+  const [voiceUsersByChannel, setVoiceUsersByChannel] = useState<Record<string, VoiceUser[]>>({});
+  const [voiceConnectingChannelId, setVoiceConnectingChannelId] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const activeChannelIdRef = useRef<string | null>(null);
   const subscribedChannelRef = useRef<string | null>(null);
   const desiredChannelRef = useRef<string | null>(null);
+  const activeVoiceConnectionRef = useRef<import('./voice/mediasoupClient').VoiceConnection | null>(null);
 
   const currentOverlay = overlayStack.length > 0 ? overlayStack[overlayStack.length - 1] : null;
   const pushOverlay = (o: Overlay) => setOverlayStack((prev) => [...prev, o]);
@@ -363,7 +371,115 @@ export default function App() {
       return next;
     });
     setIsMobileMenuOpen(false);
+
+    const ch = serverChannels.find((c) => c.id === newChannelId);
+    if (ch && ch.type === 'voice') {
+      setVoiceError(null);
+      void joinVoiceChannel(ch);
+    } else {
+      // Переход в текстовый канал: выходим из голосового и очищаем список участников
+      setVoiceError(null);
+      if (activeVoiceConnectionRef.current) {
+        void activeVoiceConnectionRef.current.disconnect();
+        activeVoiceConnectionRef.current = null;
+      }
+      setVoiceUsersByChannel((prev) => {
+        const next = { ...prev };
+        if (activeChannelId) delete next[activeChannelId];
+        return next;
+      });
+    }
   };
+
+  const joinVoiceChannel = async (channel: Channel) => {
+    if (!user) return;
+    setVoiceError(null);
+    setVoiceConnectingChannelId(channel.id);
+    if (activeVoiceConnectionRef.current) {
+      try {
+        await activeVoiceConnectionRef.current.disconnect();
+      } catch {
+        /* ignore */
+      }
+      activeVoiceConnectionRef.current = null;
+    }
+    const peerId = `${user.id}:${crypto.randomUUID?.() ?? Date.now().toString()}`;
+    const conn = new VoiceConnection(channel.id, peerId, user.id);
+    activeVoiceConnectionRef.current = conn;
+    try {
+      await conn.connect();
+      const peers = await conn.getPeers();
+      // Группируем пиров по userId, чтобы один пользователь не отображался несколько раз
+      const byUser: Record<string, VoiceUser> = {};
+      for (const p of peers) {
+        const key = p.userId ?? p.id;
+        const isSelf = p.userId === user.id;
+        byUser[key] = {
+          id: p.id,
+          userId: p.userId,
+          name: isSelf ? user.nametag ?? user.username : p.userId ?? 'Участник',
+          avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
+          isMuted: false,
+          isDeafened: false,
+          isSpeaking: false,
+        };
+      }
+      setVoiceUsersByChannel((prev) => ({
+        ...prev,
+        [channel.id]: Object.values(byUser),
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Не удалось подключиться к голосовому каналу';
+      setVoiceError(message);
+      toast.error(message);
+      activeVoiceConnectionRef.current = null;
+    } finally {
+      setVoiceConnectingChannelId(null);
+    }
+  };
+
+  // Периодический опрос списка участников голосового канала
+  useEffect(() => {
+    if (!activeChannel || activeChannel.type !== 'voice' || !user) return;
+    let cancelled = false;
+    const channelId = activeChannel.id;
+
+    const tick = async () => {
+      const conn = activeVoiceConnectionRef.current;
+      if (!conn) return;
+      try {
+        const peers = await conn.getPeers();
+        if (cancelled) return;
+        const byUser: Record<string, VoiceUser> = {};
+        for (const p of peers) {
+          const key = p.userId ?? p.id;
+          const isSelf = p.userId === user.id;
+          byUser[key] = {
+            id: p.id,
+            userId: p.userId,
+            name: isSelf ? user.nametag ?? user.username : p.userId ?? 'Участник',
+            avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
+            isMuted: false,
+            isDeafened: false,
+            isSpeaking: false,
+          };
+        }
+        setVoiceUsersByChannel((prev) => ({
+          ...prev,
+          [channelId]: Object.values(byUser),
+        }));
+      } catch {
+        // ignore single tick errors
+      }
+    };
+
+    void tick();
+    const id = setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [activeChannel, user]);
 
   // Подписка на активный канал по WebSocket
   useEffect(() => {
@@ -516,7 +632,11 @@ export default function App() {
   const handleSendMessage = async (content: string) => {
     if (!activeChannelId || !activeChannel || activeChannel.type !== 'text') return;
     try {
-      await chatApi.postMessage(activeChannelId, content);
+      const sent = await chatApi.postMessage(activeChannelId, content);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === sent.id)) return prev;
+        return [...prev, sent];
+      });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         const ok = await refreshAccessToken();
@@ -555,6 +675,16 @@ export default function App() {
   );
 
   const handleLeaveVoiceChannel = () => {
+    setVoiceError(null);
+    if (activeVoiceConnectionRef.current) {
+      void activeVoiceConnectionRef.current.disconnect();
+      activeVoiceConnectionRef.current = null;
+    }
+    setVoiceUsersByChannel((prev) => {
+      const next = { ...prev };
+      if (activeChannelId) delete next[activeChannelId];
+      return next;
+    });
     toast.success('Вы покинули голосовой канал');
     const firstText = serverChannels.find((c) => c.type === 'text');
     if (firstText) handleChannelClick(firstText.id);
@@ -575,7 +705,7 @@ export default function App() {
 
   if (loading && servers.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#1a1a1f] text-white">
+      <div className="h-screen flex items-center justify-center text-white">
         <div className="animate-pulse">Загрузка...</div>
       </div>
     );
@@ -645,7 +775,7 @@ export default function App() {
 
   if (showChannelLayout && !activeChannel && loadingChannels) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#1a1a1f] text-white">
+      <div className="h-screen flex items-center justify-center text-white">
         <div className="animate-pulse">Загрузка каналов...</div>
         <Toaster theme="dark" position="bottom-right" toastOptions={{ className: 'md:mr-0 mr-0' }} />
       </div>
@@ -654,7 +784,7 @@ export default function App() {
 
   if (showChannelLayout && !activeChannel && !loadingChannels) {
     return (
-      <div className="h-screen flex bg-[#1a1a1f] text-white overflow-hidden">
+      <div className="h-screen flex text-white overflow-hidden">
         <div className="hidden md:flex">
           <ServerList
             servers={servers}
@@ -676,7 +806,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-full min-h-0 flex bg-[#1a1a1f] text-white overflow-hidden md:h-screen no-select">
+    <div className="h-full min-h-0 flex text-white overflow-hidden md:h-screen no-select">
       <div
         className={
           isHomeView
@@ -721,6 +851,7 @@ export default function App() {
                 channels={serverChannels}
                 activeChannelId={activeChannelId ?? ''}
                 unreadCounts={unreadChannelCounts}
+                voiceUsersByChannel={voiceUsersByChannel}
                 onChannelClick={handleChannelClick}
                 onAddTextChannel={handleAddTextChannel}
                 onAddVoiceChannel={handleAddVoiceChannel}
@@ -753,6 +884,7 @@ export default function App() {
                   channels={serverChannels}
                   activeChannelId={activeChannelId ?? ''}
                   unreadCounts={unreadChannelCounts}
+                  voiceUsersByChannel={voiceUsersByChannel}
                   onChannelClick={handleChannelClick}
                   onAddTextChannel={handleAddTextChannel}
                   onAddVoiceChannel={handleAddVoiceChannel}
@@ -787,7 +919,10 @@ export default function App() {
                 ) : (
                   <VoiceChannelView
                     channel={activeChannel}
-                    users={[]}
+                    users={voiceUsersByChannel[activeChannel.id] ?? []}
+                    currentUserId={user?.id}
+                    connecting={voiceConnectingChannelId === activeChannel.id}
+                    error={voiceError}
                     onLeaveChannel={handleLeaveVoiceChannel}
                   />
                 )}

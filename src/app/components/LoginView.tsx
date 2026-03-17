@@ -43,8 +43,8 @@ export function LoginView() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1a1a1f] p-4">
-      <div className="w-full max-w-sm rounded-xl bg-[#16161b] border border-white/10 p-6 shadow-xl">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-2xl glass-panel p-6 shadow-xl">
         <h1 className="text-xl font-semibold text-white text-center mb-6">
           {mode === 'login' ? 'Вход' : 'Регистрация'}
         </h1>
@@ -56,7 +56,7 @@ export function LoginView() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-[#2a2a32] border border-white/10 text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
+                className="w-full px-3 py-2 rounded-lg glass-input text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
                 placeholder="username"
                 autoComplete="username"
               />
@@ -68,7 +68,7 @@ export function LoginView() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-[#2a2a32] border border-white/10 text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
+              className="w-full px-3 py-2 rounded-lg glass-input text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
               placeholder="email@example.com"
               autoComplete="email"
               required
@@ -80,7 +80,7 @@ export function LoginView() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-[#2a2a32] border border-white/10 text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
+              className="w-full px-3 py-2 rounded-lg glass-input text-white placeholder-gray-500 focus:border-violet-500/50 outline-none"
               placeholder="••••••••"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               required

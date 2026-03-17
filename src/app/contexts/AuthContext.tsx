@@ -11,6 +11,12 @@ const ACCESS_KEY = 'voiceover_access_token';
 const REFRESH_KEY = 'voiceover_refresh_token';
 const USER_KEY = 'voiceover_user';
 
+// Обеспечивает одиночный запрос /auth/refresh_token на всё приложение.
+// Это предотвращает ситуацию, когда несколько параллельных запросов
+// используют один и тот же refresh-токен, первый успевает его "ротировать",
+// а второй получает 401 и разлогинивает пользователя.
+let globalRefreshInFlight: Promise<boolean> | null = null;
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;
@@ -78,32 +84,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshAccessToken = useCallback(async (): Promise<boolean> => {
-    const refresh = state.refreshToken ?? localStorage.getItem(REFRESH_KEY);
-    const storedUser = state.user ?? loadStored().user ?? null;
-    // Если пользователя нет совсем (экран логина) или нет refresh-токена — не дергаем API.
-    if (!refresh || !storedUser) {
-      logout();
-      return false;
+    if (globalRefreshInFlight) {
+      return globalRefreshInFlight;
     }
-    try {
-      const res = await authApi.refreshToken(refresh);
-      setState((s) => ({
-        ...s,
-        accessToken: res.access_token,
-        refreshToken: res.refresh_token,
-        user: storedUser,
-      }));
-      saveStored(res.access_token, res.refresh_token, storedUser);
-      return true;
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
+
+    globalRefreshInFlight = (async () => {
+      const refresh = state.refreshToken ?? localStorage.getItem(REFRESH_KEY);
+      const storedUser = state.user ?? loadStored().user ?? null;
+      const startingAccess = state.accessToken ?? localStorage.getItem(ACCESS_KEY) ?? null;
+      const startingRefresh = refresh;
+
+      // Если пользователя нет совсем (экран логина) или нет refresh-токена — не дергаем API.
+      if (!refresh || !storedUser) {
         logout();
-      } else {
-        logout();
+        return false;
       }
-      return false;
-    }
-  }, [state.refreshToken, state.user, logout]);
+      try {
+        const res = await authApi.refreshToken(refresh);
+        setState((s) => ({
+          ...s,
+          accessToken: res.access_token,
+          refreshToken: res.refresh_token,
+          user: storedUser,
+        }));
+        saveStored(res.access_token, res.refresh_token, storedUser);
+        return true;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          // Если за время запроса другой контекст уже успешно обновил токены
+          // (access/refresh изменились в localStorage) — считаем это успехом.
+          const currentAccess = localStorage.getItem(ACCESS_KEY) ?? null;
+          const currentRefresh = localStorage.getItem(REFRESH_KEY);
+          if (currentAccess && currentAccess !== startingAccess) {
+            return true;
+          }
+          if (currentRefresh && startingRefresh && currentRefresh !== startingRefresh) {
+            return true;
+          }
+          logout();
+        } else {
+          logout();
+        }
+        return false;
+      } finally {
+        globalRefreshInFlight = null;
+      }
+    })();
+
+    return globalRefreshInFlight;
+  }, [state.accessToken, state.refreshToken, state.user, logout]);
 
   useEffect(() => {
     const stored = loadStored();

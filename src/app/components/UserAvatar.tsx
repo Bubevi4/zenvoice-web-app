@@ -5,6 +5,7 @@
 import React from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { cn } from './ui/utils';
+import { toSecureContentUrl } from '../utils/contentUrl';
 
 export interface UserAvatarProps {
   /** URL картинки или строка вида "emoji:😎" */
@@ -25,7 +26,7 @@ const sizeClasses: Record<'sm' | 'md' | 'lg', string> = {
 export function UserAvatar({ avatarUrl, alt = '', className, size = 'md' }: UserAvatarProps) {
   const isEmoji = avatarUrl?.startsWith('emoji:');
   const emoji = isEmoji ? avatarUrl.slice(6) : null;
-  const imgSrc = !isEmoji && avatarUrl ? avatarUrl : undefined;
+  const imgSrc = !isEmoji && avatarUrl ? toSecureContentUrl(avatarUrl) : undefined;
   const sizeClass = sizeClasses[size];
 
   return (

@@ -12,9 +12,15 @@
   scrollbar-width: none;
 }
 
-/* Global dark theme override + full-height layout */
-html, body {
-  background-color: #0f0f12;
+/* Global dark theme override + full-height layout. Gradient for glassmorphism depth */
+html {
+  color: #ffffff;
+  height: 100%;
+}
+
+body {
+  background: linear-gradient(145deg, #0d0d10 0%, #12121a 35%, #0f0f14 70%, #0a0a0e 100%);
+  background-attachment: fixed;
   color: #ffffff;
   height: 100%;
   overflow: hidden; /* без скролла всей страницы, скроллятся только внутренние области */

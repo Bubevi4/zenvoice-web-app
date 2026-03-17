@@ -8,6 +8,7 @@ import { Button } from './ui/button';
 import { ApiError } from '../api/client';
 import * as chatApi from '../api/chat';
 import { toast } from 'sonner';
+import { toSecureContentUrl } from '../utils/contentUrl';
 
 interface ServerInviteViewProps {
   token: string;
@@ -58,7 +59,7 @@ export function ServerInviteView({ token, onBack, onJoined }: ServerInviteViewPr
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#1a1a1f] text-white">
+    <div className="h-screen flex flex-col text-white">
       <div className="flex items-center gap-3 p-4 border-b border-white/5">
         <button
           onClick={onBack}
@@ -82,7 +83,7 @@ export function ServerInviteView({ token, onBack, onJoined }: ServerInviteViewPr
                 {info.icon_url?.startsWith('emoji:') ? (
                   <span>{info.icon_url.slice(6)}</span>
                 ) : info.icon_url ? (
-                  <img src={info.icon_url} alt="" className="w-full h-full object-cover" />
+                  <img src={toSecureContentUrl(info.icon_url)} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <span>🏠</span>
                 )}
@@ -99,7 +100,7 @@ export function ServerInviteView({ token, onBack, onJoined }: ServerInviteViewPr
               </div>
             </div>
 
-            <div className="rounded-lg border border-white/10 bg-[#16161b]/50 p-4 text-sm text-gray-300">
+            <div className="rounded-lg border border-white/10 glass p-4 text-sm text-gray-300">
               Вы были приглашены на сервер. Нажмите кнопку ниже, чтобы вступить.
             </div>
 

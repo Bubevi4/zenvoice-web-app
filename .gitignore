@@ -1,4 +1,5 @@
 .env
+.cert/
 ATTRIBUTION.md
 node_modules/
 dist/

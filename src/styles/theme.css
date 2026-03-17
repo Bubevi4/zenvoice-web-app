@@ -39,6 +39,13 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Glassmorphism (light) */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-bg-strong: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-blur: 12px;
+  --glass-blur-strong: 20px;
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
 }
 
 .dark {
@@ -76,6 +83,14 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  /* Glassmorphism (dark) */
+  --glass-bg: rgba(15, 15, 18, 0.72);
+  --glass-bg-strong: rgba(22, 22, 27, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-hover: rgba(255, 255, 255, 0.12);
+  --glass-blur: 16px;
+  --glass-blur-strong: 24px;
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 @theme inline {
@@ -177,5 +192,44 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+/* Glassmorphism utilities */
+@layer components {
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-panel {
+    background: var(--glass-bg-strong, var(--glass-bg));
+    backdrop-filter: blur(var(--glass-blur-strong, var(--glass-blur)));
+    -webkit-backdrop-filter: blur(var(--glass-blur-strong, var(--glass-blur)));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-modal {
+    background: var(--glass-bg-strong, var(--glass-bg));
+    backdrop-filter: blur(var(--glass-blur-strong, var(--glass-blur)));
+    -webkit-backdrop-filter: blur(var(--glass-blur-strong, var(--glass-blur)));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-input {
+    background: rgba(42, 42, 50, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-input:focus {
+    border-color: rgba(139, 92, 246, 0.5);
+    outline: none;
   }
 }

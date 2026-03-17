@@ -91,7 +91,7 @@ export function ServerInviteModal({ open, serverId, serverName, onClose }: Serve
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="bg-[#1a1a1f] border-white/10 text-white sm:max-w-md">
+      <DialogContent className="glass-modal border-white/10 text-white sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Users className="w-5 h-5 text-violet-400" />
@@ -109,7 +109,7 @@ export function ServerInviteModal({ open, serverId, serverName, onClose }: Serve
               <Input
                 value={inviteUrl || (loading ? 'Создание ссылки...' : '')}
                 readOnly
-                className="bg-[#2a2a32] border-white/10 text-white"
+                className="glass-input text-white"
               />
               <Button
                 type="button"

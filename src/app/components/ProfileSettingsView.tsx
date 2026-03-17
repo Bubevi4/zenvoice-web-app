@@ -152,14 +152,14 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#1a1a1f] text-white">
+      <div className="h-screen flex items-center justify-center text-white">
         <div className="animate-pulse">Загрузка профиля...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#1a1a1f] text-white">
+    <div className="min-h-screen flex flex-col text-white">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -212,7 +212,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
                 if (e.target.value.trim()) setAvatarEmoji('');
               }}
               placeholder="https://..."
-              className="bg-[#2a2a32] border-white/10 text-white"
+              className="glass-input text-white"
             />
           </div>
 
@@ -252,7 +252,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
-              className="bg-[#2a2a32] border-white/10 text-white"
+              className="glass-input text-white"
               minLength={2}
               maxLength={32}
             />
@@ -264,7 +264,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
               value={nametag}
               onChange={(e) => setNametag(e.target.value)}
               placeholder="@nametag"
-              className="bg-[#2a2a32] border-white/10 text-white"
+              className="glass-input text-white"
               minLength={2}
               maxLength={32}
             />
@@ -278,7 +278,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@example.com"
-              className="bg-[#2a2a32] border-white/10 text-white"
+              className="glass-input text-white"
             />
           </div>
         </div>

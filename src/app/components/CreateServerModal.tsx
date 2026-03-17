@@ -63,7 +63,7 @@ export function CreateServerModal({ open, onClose, onCreate }: CreateServerModal
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="bg-[#1a1a1f] border-white/10 text-white sm:max-w-md">
+      <DialogContent className="glass-modal border-white/10 text-white sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Server className="w-5 h-5 text-violet-400" />
@@ -88,7 +88,7 @@ export function CreateServerModal({ open, onClose, onCreate }: CreateServerModal
               }}
               placeholder="Мой сервер"
               maxLength={100}
-              className="bg-[#2a2a32] border-white/10 text-white placeholder:text-gray-500 focus:border-violet-500/50"
+              className="glass-input text-white placeholder:text-gray-500 focus:border-violet-500/50"
               disabled={loading}
               autoFocus
             />

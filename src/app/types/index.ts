@@ -57,6 +57,7 @@ export interface Message {
 
 export interface VoiceUser {
   id: string;
+  userId?: string;
   name: string;
   avatar: string;
   isMuted: boolean;

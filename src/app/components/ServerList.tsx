@@ -25,7 +25,7 @@ export function ServerList({
   currentUserAvatar,
 }: ServerListProps) {
   return (
-    <div className="w-[72px] bg-[#0f0f12] flex flex-col items-center py-3 gap-2 border-r border-white/5 shrink-0">
+    <div className="w-[72px] glass-panel flex flex-col items-center py-3 gap-2 border-r border-white/5 shrink-0">
       {/* Home — личные чаты (ЛС) */}
       <button
         onClick={() => onServerClick(HOME_SERVER_ID)}
@@ -73,7 +73,7 @@ export function ServerList({
       {/* Add server button */}
       <button
         onClick={onAddServer}
-        className="w-12 h-12 rounded-2xl bg-[#1a1a1f] hover:bg-gradient-to-br hover:from-green-600 hover:to-emerald-600 hover:rounded-xl active:scale-95 transition-all duration-200 flex items-center justify-center group"
+        className="w-12 h-12 rounded-2xl glass hover:bg-gradient-to-br hover:from-green-600 hover:to-emerald-600 hover:rounded-xl active:scale-95 transition-all duration-200 flex items-center justify-center group"
       >
         <Plus className="w-6 h-6 text-green-500 group-hover:text-white transition-colors" />
       </button>

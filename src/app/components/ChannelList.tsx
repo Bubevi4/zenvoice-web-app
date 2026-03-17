@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Hash, Volume2, ChevronDown, Settings, UserPlus, Bell, Pencil, Trash2 } from 'lucide-react';
-import type { Channel, Server } from '../models';
+import type { Channel, Server, VoiceUser } from '../models';
 import { UserAvatar } from './UserAvatar';
 import {
   DropdownMenu,
@@ -26,6 +26,7 @@ interface ChannelListProps {
   channels: Channel[];
   activeChannelId: string;
   unreadCounts?: Record<string, number>;
+  voiceUsersByChannel?: Record<string, VoiceUser[]>;
   onChannelClick: (channelId: string) => void;
   onAddTextChannel?: (serverId: string) => void;
   onAddVoiceChannel?: (serverId: string) => void;
@@ -55,6 +56,7 @@ export function ChannelList({
   currentUserAvatar,
   onRenameChannel,
   onDeleteChannel,
+  voiceUsersByChannel = {},
 }: ChannelListProps) {
   const [contextMenuChannelId, setContextMenuChannelId] = useState<string | null>(null);
   const [renameChannelId, setRenameChannelId] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function ChannelList({
   const voiceChannels = channels.filter(c => c.type === 'voice');
 
   return (
-    <div className="w-60 bg-[#16161b] flex flex-col border-r border-white/5 shrink-0">
+    <div className="w-60 glass-panel flex flex-col border-r border-white/5 shrink-0">
       {/* Server header */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -147,7 +149,7 @@ export function ChannelList({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="bg-[#1a1a1f] border-white/10 text-white min-w-[220px]"
+          className="glass-modal border-white/10 text-white min-w-[220px]"
         >
           <DropdownMenuItem
             onClick={() => onOpenServerSettings?.(server.id)}
@@ -226,7 +228,7 @@ export function ChannelList({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="bg-[#1a1a1f] border-white/10 text-white min-w-[180px]"
+                  className="glass-modal border-white/10 text-white min-w-[180px]"
                 >
                   <DropdownMenuItem
                     className="cursor-pointer text-gray-200 focus:bg-white/10 focus:text-white"
@@ -263,65 +265,99 @@ export function ChannelList({
               <UserPlus className="w-4 h-4" />
             </button>
           </div>
-          {voiceChannels.map((channel) => (
-            <DropdownMenu
-              key={channel.id}
-              open={contextMenuChannelId === channel.id}
-              onOpenChange={(open) => {
-                if (!open) setContextMenuChannelId(null);
-              }}
-            >
-              <DropdownMenuTrigger asChild>
-                <button
-                  className={`
-                    w-full flex items-center justify-start gap-2 px-2 py-1.5 rounded-md mb-0.5
-                    transition-all duration-150 group active:scale-[0.98]
-                    ${activeChannelId === channel.id
-                      ? 'bg-violet-600/20 text-violet-300'
-                      : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                    }
-                  `}
-                  onMouseDown={() => startLongPress(channel.id)}
-                  onMouseUp={clearLongPress}
-                  onMouseLeave={clearLongPress}
-                  onTouchStart={() => startLongPress(channel.id)}
-                  onTouchEnd={clearLongPress}
-                  onClick={(e) => handleChannelClick(channel.id, e)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenuChannelId(channel.id);
+          {voiceChannels.map((channel) => {
+            const voiceUsers = voiceUsersByChannel[channel.id] ?? [];
+            const isActiveVoice = activeChannelId === channel.id;
+            return (
+              <div key={channel.id} className="mb-0.5">
+                <DropdownMenu
+                  open={contextMenuChannelId === channel.id}
+                  onOpenChange={(open) => {
+                    if (!open) setContextMenuChannelId(null);
                   }}
                 >
-                  <Volume2 className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm truncate flex-1 min-w-0 text-left">{channel.name}</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="bg-[#1a1a1f] border-white/10 text-white min-w-[180px]"
-              >
-                <DropdownMenuItem
-                  className="cursor-pointer text-gray-200 focus:bg-white/10 focus:text-white"
-                  onClick={() => openRenameDialog(channel)}
-                >
-                  <Pencil className="w-4 h-4" />
-                  Переименовать
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer text-red-400 focus:bg-red-500/10 focus:text-red-400"
-                  onClick={() => openDeleteConfirm(channel.id)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Удалить
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ))}
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={`
+                        w-full flex items-center justify-start gap-2 px-2 py-1.5 rounded-md
+                        transition-all duration-150 group active:scale-[0.98]
+                        ${isActiveVoice
+                          ? 'bg-violet-600/20 text-violet-300'
+                          : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+                        }
+                      `}
+                      onMouseDown={() => startLongPress(channel.id)}
+                      onMouseUp={clearLongPress}
+                      onMouseLeave={clearLongPress}
+                      onTouchStart={() => startLongPress(channel.id)}
+                      onTouchEnd={clearLongPress}
+                      onClick={(e) => handleChannelClick(channel.id, e)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenuChannelId(channel.id);
+                      }}
+                    >
+                      <Volume2 className="w-4 h-4 flex-shrink-0" />
+                      <span className="text-sm truncate flex-1 min-w-0 text-left">{channel.name}</span>
+                      {isActiveVoice && (
+                        <span className="text-[10px] text-green-400 font-medium shrink-0" title="Вы в этом канале">
+                          в канале
+                        </span>
+                      )}
+                      {voiceUsers.length > 0 && (
+                        <span className="text-[11px] text-violet-300 ml-1 shrink-0">
+                          {voiceUsers.length}
+                        </span>
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="glass-modal border-white/10 text-white min-w-[180px]"
+                  >
+                    <DropdownMenuItem
+                      className="cursor-pointer text-gray-200 focus:bg-white/10 focus:text-white"
+                      onClick={() => openRenameDialog(channel)}
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Переименовать
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer text-red-400 focus:bg-red-500/10 focus:text-red-400"
+                      onClick={() => openDeleteConfirm(channel.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Удалить
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {voiceUsers.length > 0 && (
+                  <div className="mt-0.5 pl-6 pr-2 flex items-center gap-1.5 flex-wrap min-h-[20px]">
+                    {voiceUsers.slice(0, 5).map((u) => (
+                      <div
+                        key={u.id}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 text-[11px] text-gray-200 max-w-[100px] min-w-0"
+                        title={u.userId ? `ID: ${u.userId}` : u.name}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" aria-hidden />
+                        <span className="truncate">{u.name}</span>
+                      </div>
+                    ))}
+                    {voiceUsers.length > 5 && (
+                      <span className="text-[11px] text-gray-400 shrink-0">
+                        +{voiceUsers.length - 5}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
       
       {/* User panel (аватар → профиль, шестерёнка → настройки приложения, колокольчик → уведомления) */}
-      <div className="h-14 px-2 bg-[#0f0f12] border-t border-white/5 flex items-center gap-2 shrink-0">
+      <div className="h-14 px-2 glass-panel border-t border-white/5 flex items-center gap-2 shrink-0">
         <button
           onClick={onOpenProfile}
           className="shrink-0 active:scale-95 transition-transform"
@@ -354,7 +390,7 @@ export function ChannelList({
 
       {/* Диалог переименования канала */}
       <Dialog open={!!renameChannelId} onOpenChange={(open) => { if (!open) setRenameChannelId(null); }}>
-        <DialogContent className="bg-[#1a1a1f] border-white/10 text-white sm:max-w-md">
+        <DialogContent className="glass-modal border-white/10 text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Переименовать канал</DialogTitle>
           </DialogHeader>
@@ -363,7 +399,7 @@ export function ChannelList({
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               placeholder="Название канала"
-              className="bg-[#2a2a32] border-white/10 text-white"
+              className="glass-input text-white"
               maxLength={100}
               autoFocus
             />
@@ -391,7 +427,7 @@ export function ChannelList({
 
       {/* Подтверждение удаления канала */}
       <Dialog open={!!deleteConfirmChannelId} onOpenChange={(open) => { if (!open) setDeleteConfirmChannelId(null); }}>
-        <DialogContent className="bg-[#1a1a1f] border-white/10 text-white sm:max-w-md">
+        <DialogContent className="glass-modal border-white/10 text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Удалить канал?</DialogTitle>
           </DialogHeader>

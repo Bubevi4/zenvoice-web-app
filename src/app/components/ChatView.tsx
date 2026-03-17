@@ -5,6 +5,7 @@ import type { Message, Channel } from '../models';
 import { UserAvatar } from './UserAvatar';
 import * as chatApi from '../api/chat';
 import { useIsMobile } from './ui/use-mobile';
+import { toSecureContentUrl } from '../utils/contentUrl';
 
 interface ChatViewProps {
   channel: Channel;
@@ -36,11 +37,33 @@ export function ChatView({
   const recordStartedAtRef = useRef<number | null>(null);
   const circleVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const overlayCircleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRecordingVideoRef = useRef<HTMLVideoElement | null>(null);
   const isMobile = useIsMobile();
   const isTouchDevice =
     typeof window !== 'undefined' &&
     (('ontouchstart' in window) || (navigator as any).maxTouchPoints > 0);
   const recordPressTimeoutRef = useRef<number | null>(null);
+
+  // Привязка live-просмотра к актуальному mediaStream, в том числе при повторной записи
+  useEffect(() => {
+    const video = overlayRecordingVideoRef.current;
+    const stream = mediaStreamRef.current;
+    if (isRecording && video && stream) {
+      try {
+        (video as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject = stream;
+        void video.play();
+      } catch {
+        // ignore preview errors
+      }
+    }
+    if (!isRecording && video) {
+      try {
+        (video as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject = null;
+      } catch {
+        // ignore
+      }
+    }
+  }, [isRecording]);
 
   // При заходе в диалог и при появлении нового последнего сообщения —
   // прокрутка к низу (не трогаем скролл при подгрузке истории сверху).
@@ -71,6 +94,15 @@ export function ChatView({
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     }
     mediaStreamRef.current = null;
+    // Сбрасываем превью, чтобы при следующей записи не оставался старый поток
+    if (overlayRecordingVideoRef.current) {
+      try {
+        (overlayRecordingVideoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
+          null;
+      } catch {
+        // ignore
+      }
+    }
     recordChunksRef.current = [];
     recordStartedAtRef.current = null;
   };
@@ -230,9 +262,9 @@ export function ChatView({
   const EMOJIS = ['😀', '😁', '😂', '😍', '👍', '🔥', '❤️', '🙏', '🎧', '🎥', '😉', '😎'];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#1a1a1f]">
+    <div className="flex-1 flex flex-col min-h-0 glass">
       {/* Channel header - hidden on mobile (MobileHeader shows instead) */}
-      <div className="hidden md:flex h-12 px-4 items-center justify-between border-b border-white/5 bg-[#16161b]/50 backdrop-blur-sm">
+      <div className="hidden md:flex h-12 px-4 items-center justify-between border-b border-white/5 glass">
         <div className="flex items-center gap-2">
           <Hash className="w-5 h-5 text-gray-400" />
           <h3 className="font-semibold text-white">{channel.name}</h3>
@@ -351,7 +383,7 @@ export function ChatView({
                                   ref={(el) => {
                                     circleVideoRefs.current[message.id] = el;
                                   }}
-                                  src={att.url ?? ''}
+                                  src={toSecureContentUrl(att.url) ?? ''}
                                   muted
                                   playsInline
                                   loop
@@ -364,7 +396,7 @@ export function ChatView({
                             return (
                               <div key={`${message.id}-img-${idx}`} className="inline-block max-w-xs rounded-xl overflow-hidden border border-white/10 bg-black/20">
                                 <img
-                                  src={att.url ?? ''}
+                                  src={toSecureContentUrl(att.url) ?? ''}
                                   alt={att.filename ?? 'image'}
                                   className="max-h-72 w-full object-contain"
                                 />
@@ -378,7 +410,7 @@ export function ChatView({
                                 className="inline-block max-w-xs rounded-xl overflow-hidden border border-white/10 bg-black/30"
                               >
                                 <video
-                                  src={att.url ?? ''}
+                                  src={toSecureContentUrl(att.url) ?? ''}
                                   controls
                                   playsInline
                                   className="max-h-72 w-full object-contain bg-black"
@@ -396,7 +428,7 @@ export function ChatView({
                             return (
                               <a
                                 key={`${message.id}-file-${idx}`}
-                                href={att.url ?? '#'}
+                                href={toSecureContentUrl(att.url) ?? '#'}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[#22222b] border border-white/10 hover:border-violet-500/60 hover:bg-[#262636] transition-colors max-w-xs"
@@ -493,7 +525,7 @@ export function ChatView({
                 >
                   <video
                     ref={overlayCircleVideoRef}
-                    src={att.url ?? ''}
+                    src={toSecureContentUrl(att.url) ?? ''}
                     autoPlay
                     playsInline
                     muted={false}
@@ -505,6 +537,21 @@ export function ChatView({
         </div>
       )}
 
+      {/* Overlay живого предпросмотра во время записи кружка */}
+      {isRecording && mediaStreamRef.current && (
+        <div className="fixed inset-0 z-[55] bg-black/80 flex items-center justify-center">
+          <div className="relative w-[320px] h-[320px] md:w-[380px] md:h-[380px] rounded-full overflow-hidden bg-black">
+            <video
+              ref={overlayRecordingVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Message input + media / voice-video controls */}
       <div className="p-3 md:p-4">
         <form onSubmit={handleSubmit} className="relative">
@@ -513,23 +560,14 @@ export function ChatView({
             <button
               type="button"
               onClick={() => attachInputRef.current?.click()}
-              className="flex-shrink-0 h-11 w-11 md:h-12 md:w-12 rounded-full bg-[#2a2a32] border border-white/10 flex items-center justify-center hover:bg-white/10 hover:border-violet-500/60 transition-colors shadow-sm"
+              className="flex-shrink-0 h-11 w-11 md:h-12 md:w-12 rounded-full glass-input flex items-center justify-center hover:border-violet-500/60 transition-colors shadow-sm"
             >
               <Paperclip className="w-5 h-5 md:w-6 md:h-6 text-gray-300" />
             </button>
 
-            {/* Text input with emoji and send (send button слева внутри поля) */}
-            <div className="flex-1 bg-[#2a2a32] rounded-lg border border-white/5 focus-within:border-violet-500/50 transition-colors">
+            {/* Text input with emoji / send (send button справа внутри поля) */}
+            <div className="flex-1 glass-input rounded-lg focus-within:border-violet-500/50 transition-colors">
               <div className="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2.5 md:py-3">
-                {inputValue.trim() && (
-                  <button
-                    type="submit"
-                    className="mr-1 flex-shrink-0 p-1.5 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 transition-all shadow-lg"
-                    aria-label="Отправить сообщение"
-                  >
-                    <Send className="w-4 h-4 md:w-5 md:h-5 text-white" />
-                  </button>
-                )}
                 <input
                   type="text"
                   value={inputValue}
@@ -541,13 +579,23 @@ export function ChatView({
                   }
                   className="flex-1 bg-transparent text-gray-200 placeholder-gray-500 outline-none text-[14px] md:text-[15px]"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowEmojiPicker((v) => !v)}
-                  className="p-1 hover:bg-white/10 rounded transition-colors"
-                >
-                  <Smile className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
-                </button>
+                {inputValue.trim() ? (
+                  <button
+                    type="submit"
+                    className="flex-shrink-0 p-1.5 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 transition-all shadow-lg"
+                    aria-label="Отправить сообщение"
+                  >
+                    <Send className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker((v) => !v)}
+                    className="p-1 hover:bg-white/10 rounded transition-colors"
+                  >
+                    <Smile className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -561,7 +609,7 @@ export function ChatView({
                   onMouseLeave={handleVoiceRecordPressEnd}
                   onTouchStart={handleVoiceRecordPressStart}
                   onTouchEnd={handleVoiceRecordPressEnd}
-                  className="flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2a2a32] border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
+                  className="flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-full glass-input flex items-center justify-center hover:border-white/15 transition-colors"
                   aria-label="Записать голосовое сообщение"
                 >
                   <Mic className="w-4 h-4 md:w-5 md:h-5 text-white" />
@@ -602,7 +650,7 @@ export function ChatView({
             }}
           />
           {showEmojiPicker && (
-            <div className="absolute bottom-16 left-14 md:left-16 z-20 rounded-xl bg-[#1f1f27] border border-white/10 p-2 flex flex-wrap gap-1 w-56 shadow-xl">
+            <div className="absolute bottom-16 left-14 md:left-16 z-20 rounded-xl glass-panel p-2 flex flex-wrap gap-1 w-56 shadow-xl">
               {EMOJIS.map((emoji) => (
                 <button
                   key={emoji}

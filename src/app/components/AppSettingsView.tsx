@@ -10,7 +10,7 @@ interface AppSettingsViewProps {
 
 export function AppSettingsView({ onBack }: AppSettingsViewProps) {
   return (
-    <div className="h-screen flex flex-col bg-[#1a1a1f] text-white">
+    <div className="h-screen flex flex-col text-white">
       <div className="flex items-center gap-3 p-4 border-b border-white/5">
         <button
           onClick={onBack}

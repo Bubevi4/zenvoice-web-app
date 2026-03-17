@@ -353,7 +353,11 @@ export function HomeView({
     async (content: string) => {
       if (!activeDmId || !activeDm) return;
       try {
-        await chatApi.postMessage(activeDmId, content);
+        const sent = await chatApi.postMessage(activeDmId, content);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id)) return prev;
+          return [...prev, sent];
+        });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           const ok = await onRefreshToken();
@@ -370,7 +374,11 @@ export function HomeView({
     async (file: Blob, durationMs: number) => {
       if (!activeDmId || !activeDm) return;
       try {
-        await chatApi.postVideoCircleMessage(activeDmId, file, durationMs);
+        const sent = await chatApi.postVideoCircleMessage(activeDmId, file, durationMs);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id)) return prev;
+          return [...prev, sent];
+        });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           const ok = await onRefreshToken();
@@ -429,14 +437,14 @@ export function HomeView({
 
   return (
     <div
-      className="h-full flex bg-[#1a1a1f] text-white overflow-hidden"
+      className="h-full flex text-white overflow-hidden"
       style={{ touchAction: 'pan-y' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       {/* Список DM: на мобильном скрывается при открытом чате; без выбранного чата — тянется на весь экран */}
       <div
-        className={`border-r border-white/5 flex-col min-h-0 bg-[#16161b]/50 ${
+        className={`border-r border-white/5 flex-col min-h-0 glass-panel ${
           activeDmId ? 'hidden md:flex w-72 shrink-0' : 'flex w-72 md:w-72 flex-1 min-w-0'
         }`}
       >
@@ -451,7 +459,7 @@ export function HomeView({
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="@nametag"
-              className="flex-1 px-3 py-2 rounded-lg bg-[#2a2a32] border border-white/5 text-white placeholder-gray-500 focus:border-violet-500/50 outline-none text-sm"
+              className="flex-1 px-3 py-2 rounded-lg glass-input text-white placeholder-gray-500 focus:border-violet-500/50 outline-none text-sm"
             />
             <button
               onClick={handleSearch}
@@ -463,7 +471,7 @@ export function HomeView({
           </div>
           {searchError && <p className="text-xs text-red-400 mt-1">{searchError}</p>}
           {searchResult && (
-            <div className="mt-2 p-2 rounded-lg bg-[#2a2a32] flex items-center justify-between">
+            <div className="mt-2 p-2 rounded-lg glass flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
                 <UserAvatar avatarUrl={searchResult.avatar_url} size="sm" alt={searchResult.username} />
                 <div className="min-w-0">
@@ -520,7 +528,7 @@ export function HomeView({
         </div>
 
         {/* User panel (как в ChannelList): профиль, настройки, уведомления */}
-        <div className="h-14 px-2 bg-[#0f0f12] border-t border-white/5 flex items-center gap-2 shrink-0">
+        <div className="h-14 px-2 glass-panel border-t border-white/5 flex items-center gap-2 shrink-0">
           <button
             onClick={onOpenProfile}
             className="shrink-0 active:scale-95 transition-transform"
@@ -560,7 +568,7 @@ export function HomeView({
       >
         {channelForChat ? (
           <>
-            <div className="h-12 shrink-0 px-2 md:px-4 flex items-center gap-2 border-b border-white/5 bg-[#16161b]/50">
+            <div className="h-12 shrink-0 px-2 md:px-4 flex items-center gap-2 border-b border-white/5 glass">
               <button
                 type="button"
                 onClick={handleBackToDmList}
