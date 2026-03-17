@@ -2,7 +2,7 @@
  * API авторизации: регистрация, логин, обновление токена.
  */
 
-import { apiGet, apiPatch, apiPost } from './client';
+import { apiGet, apiPatch, apiPost, apiPostForm } from './client';
 
 export interface LoginRequest {
   email: string;
@@ -79,4 +79,10 @@ export async function getMe(): Promise<MeResponse> {
 
 export async function updateProfile(data: ProfileUpdateRequest): Promise<MeResponse> {
   return apiPatch<MeResponse>(`${AUTH_PREFIX}/me`, data);
+}
+
+export async function uploadAvatar(file: File): Promise<MeResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiPostForm<MeResponse>(`${AUTH_PREFIX}/me/avatar`, form);
 }

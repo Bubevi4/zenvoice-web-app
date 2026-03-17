@@ -41,10 +41,10 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
         aria-hidden="true"
       />
 
-      {/* Drawer */}
+      {/* Drawer: начинается под шапкой (top-14), чтобы не перекрывать MobileHeader */}
       <div
         className={`
-          md:hidden fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 ease-out shadow-2xl
+          md:hidden fixed top-14 left-0 bottom-0 z-50 flex transition-transform duration-300 ease-out shadow-2xl
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
         style={{ width: 'calc(100vw - 56px)', maxWidth: '320px' }}

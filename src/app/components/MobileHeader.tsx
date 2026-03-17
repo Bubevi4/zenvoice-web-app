@@ -14,7 +14,7 @@ export function MobileHeader({ channel, onMenuClick, isMenuOpen }: MobileHeaderP
   return (
     <div
       className={`
-        md:hidden h-14 px-4 flex items-center justify-between border-b border-white/5 backdrop-blur-sm sticky top-0 z-50 shrink-0
+        md:hidden h-14 px-4 flex items-center justify-between border-b border-white/5 backdrop-blur-sm shrink-0
         ${isVoiceChannel
           ? 'bg-gradient-to-r from-violet-600/20 to-purple-600/20 border-violet-500/30'
           : 'glass'

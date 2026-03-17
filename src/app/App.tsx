@@ -403,6 +403,8 @@ export default function App() {
     activeVoiceConnectionRef.current = conn;
     try {
       await conn.connect();
+      // Сразу подтягиваем всех текущих участников (вдруг кто-то уже был в канале)
+      await conn.refreshConsumers();
       const peers = await conn.getPeers();
       // Группируем пиров по userId, чтобы один пользователь не отображался несколько раз
       const byUser: Record<string, VoiceUser> = {};
@@ -840,9 +842,10 @@ export default function App() {
           />
         </div>
       ) : activeServer != null ? (
-        <>
+        <div className="flex-1 flex min-h-0 min-w-0">
+          {/* Десктоп: панель каналов слева, чат справа в один ряд */}
           {activeServer && (
-            <div className="hidden md:flex">
+            <div className="hidden md:flex shrink-0">
               <ChannelList
                 server={activeServer}
                 channels={serverChannels}
@@ -863,74 +866,79 @@ export default function App() {
               />
             </div>
           )}
-          <MobileDrawer isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}>
-            <div className="flex w-full h-full">
-              <ServerList
-                servers={servers}
-                activeServerId={activeServerId ?? ''}
-                onServerClick={handleServerClick}
-                onAddServer={handleAddServer}
-                onOpenProfile={() => pushOverlay({ kind: 'profile' })}
-                onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
-                onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
-                currentUserAvatar={user?.avatar_url}
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* На мобильном: шапка в самом верху, под ней — drawer и контент канала */}
+            {isMobile && activeChannel != null && (
+              <MobileHeader
+                channel={activeChannel}
+                onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                isMenuOpen={isMobileMenuOpen}
               />
-              {activeServer && (
-                <ChannelList
-                  server={activeServer}
-                  channels={serverChannels}
-                  activeChannelId={activeChannelId ?? ''}
-                  unreadCounts={unreadChannelCounts}
-                  voiceUsersByChannel={voiceUsersByChannel}
-                  onChannelClick={handleChannelClick}
-                  onAddTextChannel={handleAddTextChannel}
-                  onAddVoiceChannel={handleAddVoiceChannel}
-                  onOpenServerSettings={handleOpenServerSettings}
-                  onInviteToServer={handleInviteToServer}
+            )}
+            <MobileDrawer isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}>
+              <div className="flex w-full h-full">
+                <ServerList
+                  servers={servers}
+                  activeServerId={activeServerId ?? ''}
+                  onServerClick={handleServerClick}
+                  onAddServer={handleAddServer}
                   onOpenProfile={() => pushOverlay({ kind: 'profile' })}
                   onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
                   onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
                   currentUserAvatar={user?.avatar_url}
-                  onRenameChannel={handleRenameChannel}
-                  onDeleteChannel={handleDeleteChannel}
                 />
-              )}
-            </div>
-          </MobileDrawer>
-          <div className="flex-1 flex flex-col min-h-0">
-            {activeChannel != null ? (
-              <>
-                <MobileHeader
-                  channel={activeChannel}
-                  onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                  isMenuOpen={isMobileMenuOpen}
-                />
-                {activeChannel.type === 'text' ? (
-                  <ChatView
-                    channel={activeChannel}
-                    messages={channelMessages}
-                    onSendMessage={handleSendMessage}
-                    loading={loadingMessages}
-                    onLoadMore={handleLoadMoreMessages}
-                  />
-                ) : (
-                  <VoiceChannelView
-                    channel={activeChannel}
-                    users={voiceUsersByChannel[activeChannel.id] ?? []}
-                    currentUserId={user?.id}
-                    connecting={voiceConnectingChannelId === activeChannel.id}
-                    error={voiceError}
-                    onLeaveChannel={handleLeaveVoiceChannel}
+                {activeServer && (
+                  <ChannelList
+                    server={activeServer}
+                    channels={serverChannels}
+                    activeChannelId={activeChannelId ?? ''}
+                    unreadCounts={unreadChannelCounts}
+                    voiceUsersByChannel={voiceUsersByChannel}
+                    onChannelClick={handleChannelClick}
+                    onAddTextChannel={handleAddTextChannel}
+                    onAddVoiceChannel={handleAddVoiceChannel}
+                    onOpenServerSettings={handleOpenServerSettings}
+                    onInviteToServer={handleInviteToServer}
+                    onOpenProfile={() => pushOverlay({ kind: 'profile' })}
+                    onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
+                    onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
+                    currentUserAvatar={user?.avatar_url}
+                    onRenameChannel={handleRenameChannel}
+                    onDeleteChannel={handleDeleteChannel}
                   />
                 )}
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-gray-400">
-                {loadingChannels ? 'Загрузка каналов...' : 'Выберите канал'}
               </div>
-            )}
+            </MobileDrawer>
+            <div className="flex-1 flex flex-col min-h-0 min-w-0">
+              {activeChannel != null ? (
+                <>
+                  {activeChannel.type === 'text' ? (
+                    <ChatView
+                      channel={activeChannel}
+                      messages={channelMessages}
+                      onSendMessage={handleSendMessage}
+                      loading={loadingMessages}
+                      onLoadMore={handleLoadMoreMessages}
+                    />
+                  ) : (
+                    <VoiceChannelView
+                      channel={activeChannel}
+                      users={voiceUsersByChannel[activeChannel.id] ?? []}
+                      currentUserId={user?.id}
+                      connecting={voiceConnectingChannelId === activeChannel.id}
+                      error={voiceError}
+                      onLeaveChannel={handleLeaveVoiceChannel}
+                    />
+                  )}
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-gray-400">
+                  {loadingChannels ? 'Загрузка каналов...' : 'Выберите канал'}
+                </div>
+              )}
+            </div>
           </div>
-        </>
+        </div>
       ) : (
         <div className="flex-1 flex flex-col min-w-0">
           <HomeView

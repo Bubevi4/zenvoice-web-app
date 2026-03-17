@@ -2,10 +2,11 @@
  * Страница настроек профиля: аватар (URL или emoji), имя, почта.
  */
 
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Check, Upload, User } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { cn } from './ui/utils';
 import { useAuth } from '../contexts/AuthContext';
 import * as authApi from '../api/auth';
 import { ApiError } from '../api/client';
@@ -26,8 +27,10 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
   const [email, setEmail] = useState(user?.email ?? '');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [avatarEmoji, setAvatarEmoji] = useState<string>('');
+  const [avatarFilePreview, setAvatarFilePreview] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isEmojiAvatar = user?.avatar_url?.startsWith('emoji:');
   const displayEmoji = isEmojiAvatar ? user!.avatar_url!.slice(6) : '';
@@ -37,13 +40,16 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
       if (user.avatar_url.startsWith('emoji:')) {
         setAvatarEmoji(user.avatar_url.slice(6));
         setAvatarUrl('');
+        setAvatarFilePreview('');
       } else {
         setAvatarUrl(user.avatar_url);
         setAvatarEmoji('');
+        setAvatarFilePreview('');
       }
     } else {
       setAvatarUrl('');
       setAvatarEmoji('');
+      setAvatarFilePreview('');
     }
   }, [user?.avatar_url]);
 
@@ -141,7 +147,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         const ok = await onRefreshToken();
-        if (ok) return handleSave(e as unknown as React.FormEvent);
+        if (ok) return handleSave();
         onLogout();
       }
       toast.error(e instanceof ApiError ? e.message : 'Не удалось сохранить');
@@ -159,7 +165,7 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
   }
 
   return (
-    <div className="min-h-screen flex flex-col text-white">
+    <div className="min-h-screen flex flex-col text-white pb-[max(2rem,env(safe-area-inset-bottom))]">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -191,28 +197,78 @@ export function ProfileSettingsView({ onBack, onRefreshToken, onLogout }: Profil
 
         <div className="p-4 md:p-6 max-w-xl mx-auto w-full space-y-6">
           <div className="flex flex-col items-center gap-4">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-4xl overflow-hidden shadow-lg">
+            <div
+              className={cn(
+                'w-24 h-24 rounded-full flex items-center justify-center text-4xl overflow-hidden shadow-lg',
+                avatarEmoji || (!avatarUrl && !avatarFilePreview)
+                  ? 'bg-gradient-to-br from-violet-600 to-purple-600'
+                  : 'bg-transparent'
+              )}
+            >
               {avatarEmoji ? (
                 <span>{avatarEmoji}</span>
+              ) : avatarFilePreview ? (
+                <img src={avatarFilePreview} alt="" className="w-full h-full object-cover" />
               ) : avatarUrl ? (
                 <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
               ) : (
                 <User className="w-12 h-12 text-white/80" />
               )}
             </div>
-            <p className="text-sm text-gray-400">Аватар (URL или emoji)</p>
+            <p className="text-sm text-gray-400">Аватар (загрузка или emoji)</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ссылка на аватар</label>
-            <Input
-              value={avatarUrl}
-              onChange={(e) => {
-                setAvatarUrl(e.target.value);
-                if (e.target.value.trim()) setAvatarEmoji('');
+            <label className="block text-sm font-medium text-gray-300 mb-2">Загрузить аватар</label>
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/20 text-gray-200 hover:bg-white/10"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Выбрать файл
+              </Button>
+              <span className="text-xs text-gray-500">JPEG/PNG/WebP, до 2MB</span>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                try {
+                  setSaving(true);
+                  // Сброс emoji при загрузке файла
+                  setAvatarEmoji('');
+                  const blobUrl = URL.createObjectURL(file);
+                  setAvatarFilePreview(blobUrl);
+                  const updated = await authApi.uploadAvatar(file);
+                  setUser({
+                    id: updated.id,
+                    username: updated.username,
+                    nametag: updated.nametag,
+                    email: updated.email,
+                    avatar_url: updated.avatar_url ?? null,
+                  });
+                  setAvatarUrl(updated.avatar_url ?? '');
+                  toast.success('Аватар обновлён');
+                } catch (err) {
+                  const e2 = err;
+                  if (e2 instanceof ApiError && e2.status === 401) {
+                    const ok = await onRefreshToken();
+                    if (ok) return;
+                    onLogout();
+                  }
+                  toast.error(e2 instanceof ApiError ? e2.message : 'Не удалось загрузить аватар');
+                } finally {
+                  setSaving(false);
+                }
               }}
-              placeholder="https://..."
-              className="glass-input text-white"
             />
           </div>
 

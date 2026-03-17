@@ -33,7 +33,11 @@ export function ServerList({
           activeServerId === HOME_SERVER_ID ? 'rounded-xl ring-2 ring-white/30' : ''
         }`}
       >
-        🏠
+        <img
+          src="/favicon.ico"
+          alt="DMs"
+          className="w-7 h-7 rounded-lg"
+        />
       </button>
       
       <div className="w-8 h-[2px] bg-white/10 rounded-full my-1" />

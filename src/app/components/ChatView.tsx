@@ -529,6 +529,7 @@ export function ChatView({
                     autoPlay
                     playsInline
                     muted={false}
+                    loop
                     className="w-full h-full object-cover"
                   />
                 </div>
