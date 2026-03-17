@@ -377,17 +377,12 @@ export default function App() {
       setVoiceError(null);
       void joinVoiceChannel(ch);
     } else {
-      // Переход в текстовый канал: выходим из голосового и очищаем список участников
+      // Переход в текстовый канал: выходим из голосового канала
       setVoiceError(null);
       if (activeVoiceConnectionRef.current) {
         void activeVoiceConnectionRef.current.disconnect();
         activeVoiceConnectionRef.current = null;
       }
-      setVoiceUsersByChannel((prev) => {
-        const next = { ...prev };
-        if (activeChannelId) delete next[activeChannelId];
-        return next;
-      });
     }
   };
 
@@ -417,7 +412,7 @@ export default function App() {
         byUser[key] = {
           id: p.id,
           userId: p.userId,
-          name: isSelf ? user.nametag ?? user.username : p.userId ?? 'Участник',
+          name: isSelf ? user.nametag ?? user.username : 'Участник',
           avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
           isMuted: false,
           isDeafened: false,
@@ -448,6 +443,8 @@ export default function App() {
       const conn = activeVoiceConnectionRef.current;
       if (!conn) return;
       try {
+        // Обновляем consumers, чтобы слышать новых участников, подключившихся после нас
+        await conn.refreshConsumers();
         const peers = await conn.getPeers();
         if (cancelled) return;
         const byUser: Record<string, VoiceUser> = {};
@@ -457,7 +454,7 @@ export default function App() {
           byUser[key] = {
             id: p.id,
             userId: p.userId,
-            name: isSelf ? user.nametag ?? user.username : p.userId ?? 'Участник',
+            name: isSelf ? user.nametag ?? user.username : 'Участник',
             avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
             isMuted: false,
             isDeafened: false,
