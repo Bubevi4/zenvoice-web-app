@@ -197,6 +197,10 @@ export async function postMessage(channelId: string, content: string): Promise<M
   );
 }
 
+export async function deleteMessage(messageId: string): Promise<void> {
+  await apiDelete(`${CHAT_PREFIX}/messages/${messageId}`);
+}
+
 export async function postVideoCircleMessage(
   channelId: string,
   file: Blob,

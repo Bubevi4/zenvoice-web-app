@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ServerList, HOME_SERVER_ID } from './components/ServerList';
 import { ChannelList } from './components/ChannelList';
 import { ChatView } from './components/ChatView';
@@ -19,6 +19,7 @@ import { LandingView } from './components/LandingView';
 import { useAuth } from './contexts/AuthContext';
 import { VoiceConnection } from './voice/mediasoupClient';
 import * as chatApi from './api/chat';
+import * as mediaApi from './api/media';
 import type { Server, Channel, Message, VoiceUser } from './models';
 import { mapApiMessageToMessage } from './models';
 import { toast } from 'sonner';
@@ -69,6 +70,32 @@ export default function App() {
   const subscribedChannelRef = useRef<string | null>(null);
   const desiredChannelRef = useRef<string | null>(null);
   const activeVoiceConnectionRef = useRef<import('./voice/mediasoupClient').VoiceConnection | null>(null);
+  const voiceEventUnsubsRef = useRef<Array<() => void>>([]);
+  const voiceHeartbeatRef = useRef<number | null>(null);
+  const voiceRecoveryInProgressRef = useRef(false);
+  const voiceRecoveryAttemptsRef = useRef(0);
+
+  const mapVoicePeersToVoiceUsers = useCallback(
+    (peers: Array<{ id: string; userId?: string; username?: string }>): VoiceUser[] => {
+      if (!user) return [];
+      const byUser: Record<string, VoiceUser> = {};
+      for (const p of peers) {
+        const key = p.userId ?? p.id;
+        const isSelf = p.userId === user.id;
+        byUser[key] = {
+          id: p.id,
+          userId: p.userId,
+          name: isSelf ? user.nametag ?? user.username : p.username ?? 'Участник',
+          avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
+          isMuted: false,
+          isDeafened: false,
+          isSpeaking: false,
+        };
+      }
+      return Object.values(byUser);
+    },
+    [user]
+  );
 
   const currentOverlay = overlayStack.length > 0 ? overlayStack[overlayStack.length - 1] : null;
   const pushOverlay = (o: Overlay) => setOverlayStack((prev) => [...prev, o]);
@@ -213,6 +240,15 @@ export default function App() {
           if (prev.some((m) => m.id === mapped.id)) return prev;
           return [...prev, mapped];
         });
+      } else if (
+        typeof data === 'object' &&
+        data !== null &&
+        'event' in data &&
+        (data as any).event === 'message.deleted'
+      ) {
+        const messageId = String((data as any).message_id ?? '');
+        if (!messageId) return;
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
       }
     };
 
@@ -344,6 +380,58 @@ export default function App() {
   const serverChannels = channels.filter((c) => c.serverId === activeServerId || c.server_id === activeServerId);
   const activeChannel = serverChannels.find((c) => c.id === activeChannelId) ?? serverChannels[0] ?? null;
 
+  const voiceChannelIdsKey = useMemo(() => {
+    if (!activeServerId || activeServerId === HOME_SERVER_ID) return '';
+    return channels
+      .filter(
+        (c) =>
+          (c.serverId === activeServerId || c.server_id === activeServerId) && c.type === 'voice'
+      )
+      .map((c) => c.id)
+      .sort()
+      .join('|');
+  }, [channels, activeServerId]);
+
+  /** Сбрасываем карту голоса при смене сервера — дальше её заполняет polling. */
+  useEffect(() => {
+    setVoiceUsersByChannel({});
+  }, [activeServerId]);
+
+  /** Участники голосовых каналов для сайдбара: работает и без подключения к голосу (HTTP к media). */
+  useEffect(() => {
+    if (!accessToken || !user || !voiceChannelIdsKey) return;
+    const voiceIds = voiceChannelIdsKey.split('|').filter(Boolean);
+
+    let cancelled = false;
+    const tick = async () => {
+      const rows = await Promise.all(
+        voiceIds.map(async (id) => {
+          try {
+            const peers = await mediaApi.getVoiceRoomPeers(id);
+            return { id, users: mapVoicePeersToVoiceUsers(peers) };
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (cancelled) return;
+      setVoiceUsersByChannel((prev) => {
+        const next = { ...prev };
+        for (const row of rows) {
+          if (row) next[row.id] = row.users;
+        }
+        return next;
+      });
+    };
+
+    void tick();
+    const interval = window.setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [accessToken, user, voiceChannelIdsKey, mapVoicePeersToVoiceUsers]);
+
   /** Главная = ЛС или нет выбранного сервера (чтобы не рендерить ChannelList с null). */
   const isHomeView =
     activeServerId === HOME_SERVER_ID || activeServerId == null || activeServer == null;
@@ -363,6 +451,19 @@ export default function App() {
     setIsMobileMenuOpen(false);
   };
 
+  const cleanupVoiceRuntime = (resetRecoveryState = true) => {
+    voiceEventUnsubsRef.current.forEach((unsub) => unsub());
+    voiceEventUnsubsRef.current = [];
+    if (voiceHeartbeatRef.current != null) {
+      window.clearInterval(voiceHeartbeatRef.current);
+      voiceHeartbeatRef.current = null;
+    }
+    if (resetRecoveryState) {
+      voiceRecoveryInProgressRef.current = false;
+      voiceRecoveryAttemptsRef.current = 0;
+    }
+  };
+
   const handleChannelClick = (newChannelId: string) => {
     setActiveChannelId(newChannelId);
     setUnreadChannelCounts((prev) => {
@@ -379,6 +480,7 @@ export default function App() {
     } else {
       // Переход в текстовый канал: выходим из голосового канала
       setVoiceError(null);
+      cleanupVoiceRuntime();
       if (activeVoiceConnectionRef.current) {
         void activeVoiceConnectionRef.current.disconnect();
         activeVoiceConnectionRef.current = null;
@@ -386,10 +488,11 @@ export default function App() {
     }
   };
 
-  const joinVoiceChannel = async (channel: Channel) => {
+  const joinVoiceChannel = async (channel: Channel, options?: { preserveRecoveryState?: boolean }) => {
     if (!user) return;
     setVoiceError(null);
     setVoiceConnectingChannelId(channel.id);
+    cleanupVoiceRuntime(!(options?.preserveRecoveryState ?? false));
     if (activeVoiceConnectionRef.current) {
       try {
         await activeVoiceConnectionRef.current.disconnect();
@@ -398,87 +501,83 @@ export default function App() {
       }
       activeVoiceConnectionRef.current = null;
     }
-    const peerId = `${user.id}:${crypto.randomUUID?.() ?? Date.now().toString()}`;
-    const conn = new VoiceConnection(channel.id, peerId, user.id);
-    activeVoiceConnectionRef.current = conn;
-    try {
-      await conn.connect();
-      // Сразу подтягиваем всех текущих участников (вдруг кто-то уже был в канале)
-      await conn.refreshConsumers();
+
+    const syncVoicePeers = async (conn: VoiceConnection, targetChannelId: string) => {
       const peers = await conn.getPeers();
-      // Группируем пиров по userId, чтобы один пользователь не отображался несколько раз
-      const byUser: Record<string, VoiceUser> = {};
-      for (const p of peers) {
-        const key = p.userId ?? p.id;
-        const isSelf = p.userId === user.id;
-        byUser[key] = {
-          id: p.id,
-          userId: p.userId,
-          name: isSelf ? user.nametag ?? user.username : 'Участник',
-          avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
-          isMuted: false,
-          isDeafened: false,
-          isSpeaking: false,
-        };
-      }
       setVoiceUsersByChannel((prev) => ({
         ...prev,
-        [channel.id]: Object.values(byUser),
+        [targetChannelId]: mapVoicePeersToVoiceUsers(peers),
       }));
+    };
+
+    const peerId = `${user.id}:${crypto.randomUUID?.() ?? Date.now().toString()}`;
+    const conn = new VoiceConnection(channel.id, peerId, user.id, user.username);
+    activeVoiceConnectionRef.current = conn;
+
+    const startHeartbeat = () => {
+      if (voiceHeartbeatRef.current != null) {
+        window.clearInterval(voiceHeartbeatRef.current);
+      }
+      voiceHeartbeatRef.current = window.setInterval(() => {
+        const current = activeVoiceConnectionRef.current;
+        if (!current) return;
+        void current.ping().catch(async () => {
+          if (voiceRecoveryInProgressRef.current) return;
+          if (voiceRecoveryAttemptsRef.current >= 3) {
+            setVoiceError('Потеряно соединение с голосовым сервером. Переподключитесь к каналу.');
+            cleanupVoiceRuntime();
+            return;
+          }
+          voiceRecoveryInProgressRef.current = true;
+          voiceRecoveryAttemptsRef.current += 1;
+          try {
+            await joinVoiceChannel(channel, { preserveRecoveryState: true });
+            setVoiceError(null);
+          } catch {
+            // joinVoiceChannel сам проставляет ошибку
+          } finally {
+            voiceRecoveryInProgressRef.current = false;
+          }
+        });
+      }, 15000);
+    };
+
+    try {
+      await conn.connect();
+      await syncVoicePeers(conn, channel.id);
+      voiceEventUnsubsRef.current = [
+        conn.onProducerAdded(() => {
+          void syncVoicePeers(conn, channel.id);
+        }),
+        conn.onProducerRemoved(() => {
+          void syncVoicePeers(conn, channel.id);
+        }),
+        conn.onDisconnected(() => {
+          if (voiceRecoveryInProgressRef.current) return;
+          if (voiceRecoveryAttemptsRef.current >= 3) {
+            setVoiceError('WebSocket голосового канала закрыт. Переподключитесь к каналу.');
+            cleanupVoiceRuntime();
+            return;
+          }
+          voiceRecoveryInProgressRef.current = true;
+          voiceRecoveryAttemptsRef.current += 1;
+          void joinVoiceChannel(channel, { preserveRecoveryState: true }).finally(() => {
+            voiceRecoveryInProgressRef.current = false;
+          });
+        }),
+      ];
+      startHeartbeat();
+      voiceRecoveryAttemptsRef.current = 0;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Не удалось подключиться к голосовому каналу';
       setVoiceError(message);
       toast.error(message);
       activeVoiceConnectionRef.current = null;
+      cleanupVoiceRuntime();
     } finally {
       setVoiceConnectingChannelId(null);
     }
   };
-
-  // Периодический опрос списка участников голосового канала
-  useEffect(() => {
-    if (!activeChannel || activeChannel.type !== 'voice' || !user) return;
-    let cancelled = false;
-    const channelId = activeChannel.id;
-
-    const tick = async () => {
-      const conn = activeVoiceConnectionRef.current;
-      if (!conn) return;
-      try {
-        // Обновляем consumers, чтобы слышать новых участников, подключившихся после нас
-        await conn.refreshConsumers();
-        const peers = await conn.getPeers();
-        if (cancelled) return;
-        const byUser: Record<string, VoiceUser> = {};
-        for (const p of peers) {
-          const key = p.userId ?? p.id;
-          const isSelf = p.userId === user.id;
-          byUser[key] = {
-            id: p.id,
-            userId: p.userId,
-            name: isSelf ? user.nametag ?? user.username : 'Участник',
-            avatar: isSelf ? user.avatar_url ?? '🎧' : '🎧',
-            isMuted: false,
-            isDeafened: false,
-            isSpeaking: false,
-          };
-        }
-        setVoiceUsersByChannel((prev) => ({
-          ...prev,
-          [channelId]: Object.values(byUser),
-        }));
-      } catch {
-        // ignore single tick errors
-      }
-    };
-
-    void tick();
-    const id = setInterval(tick, 4000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [activeChannel, user]);
 
   // Подписка на активный канал по WebSocket
   useEffect(() => {
@@ -646,6 +745,10 @@ export default function App() {
     }
   };
 
+  const handleDeleteMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+  };
+
   const handleAddServer = () => {
     setCreateServerModalOpen(true);
   };
@@ -675,19 +778,21 @@ export default function App() {
 
   const handleLeaveVoiceChannel = () => {
     setVoiceError(null);
+    cleanupVoiceRuntime();
     if (activeVoiceConnectionRef.current) {
       void activeVoiceConnectionRef.current.disconnect();
       activeVoiceConnectionRef.current = null;
     }
-    setVoiceUsersByChannel((prev) => {
-      const next = { ...prev };
-      if (activeChannelId) delete next[activeChannelId];
-      return next;
-    });
     toast.success('Вы покинули голосовой канал');
     const firstText = serverChannels.find((c) => c.type === 'text');
     if (firstText) handleChannelClick(firstText.id);
   };
+
+  useEffect(() => {
+    return () => {
+      cleanupVoiceRuntime();
+    };
+  }, []);
 
   const channelMessages = activeChannelId
     ? messages.filter((m) => m.channelId === activeChannelId || m.channel_id === activeChannelId)
@@ -917,6 +1022,7 @@ export default function App() {
                       channel={activeChannel}
                       messages={channelMessages}
                       onSendMessage={handleSendMessage}
+                      onDeleteMessage={handleDeleteMessage}
                       loading={loadingMessages}
                       onLoadMore={handleLoadMoreMessages}
                     />

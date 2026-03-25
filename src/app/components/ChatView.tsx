@@ -6,6 +6,13 @@ import { UserAvatar } from './UserAvatar';
 import * as chatApi from '../api/chat';
 import { useIsMobile } from './ui/use-mobile';
 import { toSecureContentUrl } from '../utils/contentUrl';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 interface ChatViewProps {
   channel: Channel;
@@ -14,6 +21,7 @@ interface ChatViewProps {
   onSendVideoCircle?: (file: Blob, durationMs: number) => void;
   onLoadMore?: () => void;
   loading?: boolean;
+  onDeleteMessage?: (messageId: string) => void;
 }
 
 export function ChatView({
@@ -23,8 +31,11 @@ export function ChatView({
   onSendVideoCircle,
   onLoadMore,
   loading,
+  onDeleteMessage,
 }: ChatViewProps) {
+  const { user } = useAuth();
   const [inputValue, setInputValue] = useState('');
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [activeCircleId, setActiveCircleId] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -43,6 +54,7 @@ export function ChatView({
     typeof window !== 'undefined' &&
     (('ontouchstart' in window) || (navigator as any).maxTouchPoints > 0);
   const recordPressTimeoutRef = useRef<number | null>(null);
+  const [contextMessageId, setContextMessageId] = useState<string | null>(null);
 
   // Привязка live-просмотра к актуальному mediaStream, в том числе при повторной записи
   useEffect(() => {
@@ -74,8 +86,10 @@ export function ChatView({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
-      onSendMessage(inputValue);
+      const prefix = replyToMessage ? `↪ ${replyToMessage.userName ?? 'Пользователь'}: ` : '';
+      onSendMessage(`${prefix}${inputValue}`);
       setInputValue('');
+      setReplyToMessage(null);
       setShowEmojiPicker(false);
     }
   };
@@ -260,6 +274,81 @@ export function ChatView({
   };
 
   const EMOJIS = ['😀', '😁', '😂', '😍', '👍', '🔥', '❤️', '🙏', '🎧', '🎥', '😉', '😎'];
+  const LONG_PRESS_MS = 500;
+
+  const openMessageMenuByLongPress = (messageId: string) => {
+    if (recordPressTimeoutRef.current != null) {
+      window.clearTimeout(recordPressTimeoutRef.current);
+    }
+    recordPressTimeoutRef.current = window.setTimeout(() => {
+      setContextMessageId(messageId);
+    }, LONG_PRESS_MS);
+  };
+
+  const closeMessageMenuLongPress = () => {
+    if (recordPressTimeoutRef.current != null) {
+      window.clearTimeout(recordPressTimeoutRef.current);
+      recordPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleCopyMessage = async (message: Message) => {
+    if (!message.content) return;
+    try {
+      await navigator.clipboard.writeText(message.content);
+      toast.success('Текст сообщения скопирован');
+    } catch {
+      toast.error('Не удалось скопировать текст');
+    }
+  };
+
+  const handleForwardMessage = async (message: Message) => {
+    if (!message.content) {
+      toast.info('Пересылка вложений будет добавлена позже');
+      return;
+    }
+    try {
+      const dmChannels = await chatApi.getDmChannels();
+      if (dmChannels.length === 0) {
+        toast.info('Нет доступных диалогов для пересылки');
+        return;
+      }
+      const variants = dmChannels
+        .slice(0, 9)
+        .map((dm, idx) => `${idx + 1}. ${dm.other_user.username}`)
+        .join('\n');
+      const raw = window.prompt(`Выберите диалог для пересылки:\n${variants}\n\nВведите номер:`);
+      if (!raw) return;
+      const selected = Number(raw) - 1;
+      if (!Number.isInteger(selected) || selected < 0 || selected >= Math.min(dmChannels.length, 9)) {
+        toast.error('Неверный номер диалога');
+        return;
+      }
+      await chatApi.postMessage(dmChannels[selected].id, message.content);
+      toast.success('Сообщение переслано');
+    } catch {
+      toast.error('Не удалось переслать сообщение');
+    }
+  };
+
+  const handleDeleteMessage = async (message: Message) => {
+    const isOwn = user?.id === message.userId;
+    if (!isOwn) {
+      if (channel.type === 'dm') {
+        toast.error('В личных сообщениях можно удалять только свои сообщения');
+      } else {
+        toast.info('Удаление чужих сообщений на сервере будет доступно после ролевой модели');
+      }
+      return;
+    }
+    try {
+      await chatApi.deleteMessage(message.id);
+      onDeleteMessage?.(message.id);
+      toast.success('Сообщение удалено');
+    } catch {
+      toast.error('Не удалось удалить сообщение');
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 glass">
@@ -334,7 +423,23 @@ export function ChatView({
                     <div className="flex-1 h-[1px] bg-white/5" />
                   </div>
                 )}
-                <div className="flex gap-2 md:gap-3 hover:bg-white/[0.02] -mx-3 md:-mx-4 px-3 md:px-4 py-1 rounded transition-colors group">
+                <DropdownMenu
+                  open={contextMessageId === message.id}
+                  onOpenChange={(open) => {
+                    if (!open) setContextMessageId(null);
+                  }}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <div
+                      className="flex gap-2 md:gap-3 hover:bg-white/[0.02] -mx-3 md:-mx-4 px-3 md:px-4 py-1 rounded transition-colors group"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMessageId(message.id);
+                      }}
+                      onTouchStart={() => openMessageMenuByLongPress(message.id)}
+                      onTouchEnd={closeMessageMenuLongPress}
+                      onTouchCancel={closeMessageMenuLongPress}
+                    >
                   {showAvatar ? (
                     <div className="flex-shrink-0">
                       <UserAvatar
@@ -493,7 +598,41 @@ export function ChatView({
                   </p>
                 )}
                   </div>
-                </div>
+                    </div>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="glass-modal border-white/10 text-white min-w-[200px]">
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onClick={() => setReplyToMessage(message)}
+                    >
+                      Ответить на сообщение
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onClick={() => void handleCopyMessage(message)}
+                    >
+                      Копировать текст
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onClick={() => void handleForwardMessage(message)}
+                    >
+                      Переслать в другой диалог
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onClick={() => toast.info('Закрепление сообщений будет добавлено позже')}
+                    >
+                      Закрепить
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer text-red-400 focus:text-red-300"
+                      onClick={() => void handleDeleteMessage(message)}
+                    >
+                      Удалить
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             );
           })
@@ -555,6 +694,20 @@ export function ChatView({
 
       {/* Message input + media / voice-video controls */}
       <div className="p-3 md:p-4">
+        {replyToMessage && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 flex items-center justify-between gap-2">
+            <div className="text-xs text-gray-300 truncate">
+              Ответ: {replyToMessage.userName ?? 'Пользователь'}
+            </div>
+            <button
+              type="button"
+              className="text-xs text-gray-400 hover:text-white"
+              onClick={() => setReplyToMessage(null)}
+            >
+              Отмена
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="relative">
           <div className="flex items-end gap-2 md:gap-3">
             {/* Big media attach button (outside input) */}

@@ -53,6 +53,7 @@ export default defineConfig(({ mode }) => {
       '/minio': {
         target: env.VITE_MINIO_PROXY_TARGET || 'http://localhost:9000',
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/minio/, ''),
       },
     },

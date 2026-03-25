@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Bell, MessageCircle, Search, Send, Settings } from 'lucide-react';
+import { ArrowLeft, Bell, MessageCircle, Search, Settings } from 'lucide-react';
 import { ChatView } from './ChatView';
 import { UserAvatar } from './UserAvatar';
 import * as authApi from '../api/auth';
@@ -233,6 +233,15 @@ export function HomeView({
           if (prev.some((m) => m.id === mapped.id)) return prev;
           return [...prev, mapped];
         });
+      } else if (
+        typeof data === 'object' &&
+        data !== null &&
+        'event' in data &&
+        (data as any).event === 'message.deleted'
+      ) {
+        const messageId = String((data as any).message_id ?? '');
+        if (!messageId) return;
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
       }
     };
 
@@ -437,7 +446,7 @@ export function HomeView({
 
   return (
     <div
-      className="h-full flex text-white overflow-hidden"
+      className="h-full flex text-white overflow-hidden pb-[max(12px,env(safe-area-inset-bottom))] md:pb-0"
       style={{ touchAction: 'pan-y' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
@@ -471,7 +480,11 @@ export function HomeView({
           </div>
           {searchError && <p className="text-xs text-red-400 mt-1">{searchError}</p>}
           {searchResult && (
-            <div className="mt-2 p-2 rounded-lg glass flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => handleStartDm(searchResult.id)}
+              className="mt-2 p-2 rounded-lg glass flex items-center justify-between w-full text-left hover:bg-white/10 transition-colors"
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <UserAvatar avatarUrl={searchResult.avatar_url} size="sm" alt={searchResult.username} />
                 <div className="min-w-0">
@@ -479,13 +492,8 @@ export function HomeView({
                   <p className="text-xs text-gray-500 truncate">@{searchResult.nametag}</p>
                 </div>
               </div>
-              <button
-                onClick={() => handleStartDm(searchResult.id)}
-                className="p-2 rounded-lg bg-violet-600 hover:bg-violet-500 transition-colors flex-shrink-0"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
+              <MessageCircle className="w-4 h-4 text-violet-300 flex-shrink-0" />
+            </button>
           )}
         </div>
 
@@ -584,6 +592,7 @@ export function HomeView({
               channel={channelForChat}
               messages={messages}
               onSendMessage={handleSendMessage}
+              onDeleteMessage={(messageId) => setMessages((prev) => prev.filter((m) => m.id !== messageId))}
               onSendVideoCircle={handleSendVideoCircle}
               onLoadMore={handleLoadMoreMessages}
               loading={loadingMessages}

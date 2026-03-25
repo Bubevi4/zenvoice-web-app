@@ -332,23 +332,33 @@ export function ChannelList({
                   </DropdownMenuContent>
                 </DropdownMenu>
                 {voiceUsers.length > 0 && (
-                  <div className="mt-0.5 pl-6 pr-2 flex items-center gap-1.5 flex-wrap min-h-[20px]">
-                    {voiceUsers.slice(0, 5).map((u) => (
-                      <div
+                  <ul
+                    className="mt-1 w-full min-w-0 pl-2 pr-2 space-y-0.5 border-l border-white/10 ml-2"
+                    aria-label={`Участники канала ${channel.name ?? ''}`}
+                  >
+                    {voiceUsers.map((u) => (
+                      <li
                         key={u.id}
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 text-[11px] text-gray-200 max-w-[100px] min-w-0"
-                        title={u.userId ? `ID: ${u.userId}` : u.name}
+                        className="flex items-center gap-2 w-full min-w-0 py-1 px-2 rounded-md text-[12px] text-gray-200 bg-white/[0.04] border border-white/5"
+                        title={u.name}
                       >
                         <div className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" aria-hidden />
-                        <span className="truncate">{u.name}</span>
-                      </div>
+                        <UserAvatar
+                          avatarUrl={
+                            u.avatar?.startsWith('http') || u.avatar?.startsWith('emoji:')
+                              ? u.avatar
+                              : u.avatar
+                                ? `emoji:${u.avatar}`
+                                : undefined
+                          }
+                          alt={u.name}
+                          size="sm"
+                          className="!size-5 shrink-0"
+                        />
+                        <span className="truncate flex-1 min-w-0 text-left">{u.name}</span>
+                      </li>
                     ))}
-                    {voiceUsers.length > 5 && (
-                      <span className="text-[11px] text-gray-400 shrink-0">
-                        +{voiceUsers.length - 5}
-                      </span>
-                    )}
-                  </div>
+                  </ul>
                 )}
               </div>
             );
