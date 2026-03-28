@@ -21,6 +21,9 @@ export interface AuthResponse {
   nametag: string;
   email: string;
   avatar_url?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
   access_token: string;
   refresh_token: string;
   token_type?: string;
@@ -32,6 +35,9 @@ export interface MeResponse {
   nametag: string;
   email: string;
   avatar_url?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
 }
 
 export interface ProfileUpdateRequest {
@@ -39,6 +45,11 @@ export interface ProfileUpdateRequest {
   nametag?: string;
   email?: string;
   avatar_url?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
+  /** Если auth-сервис поддерживает — синхронизация с users.privacy_settings (например presence). */
+  privacy_settings?: Record<string, unknown>;
 }
 
 export interface UserSearchResult {

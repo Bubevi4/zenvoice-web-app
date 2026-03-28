@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Volume2, Mic, MicOff, Headphones, PhoneOff, Settings, UserPlus, Radio, VolumeX, Loader2, AlertCircle } from 'lucide-react';
+import { Volume2, Mic, MicOff, Headphones, PhoneOff, Settings, UserPlus, Radio, VolumeX, Loader2 } from 'lucide-react';
 import type { Channel, VoiceUser } from '../types';
 import { UserAvatar } from './UserAvatar';
 
@@ -8,18 +8,16 @@ interface VoiceChannelViewProps {
   users: VoiceUser[];
   currentUserId?: string;
   connecting?: boolean;
-  error?: string | null;
   onLeaveChannel: () => void;
 }
 
-export function VoiceChannelView({ channel, users, currentUserId, connecting, error, onLeaveChannel }: VoiceChannelViewProps) {
+export function VoiceChannelView({ channel, users, currentUserId, connecting, onLeaveChannel }: VoiceChannelViewProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   if (channel == null) return null;
 
   return (
     <div className="flex-1 flex flex-col glass">
-      {/* Channel header - hidden on mobile (MobileHeader shows instead) */}
       <div className="hidden md:flex h-12 px-4 items-center justify-between border-b border-white/5 glass">
         <div className="flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-violet-400" />
@@ -29,11 +27,6 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
               <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
               <span className="text-xs text-amber-400 font-medium">Подключение...</span>
             </div>
-          ) : error ? (
-            <div className="flex items-center gap-1 ml-2 px-2 py-0.5 bg-red-500/20 rounded-full" title={error}>
-              <AlertCircle className="w-3 h-3 text-red-400" />
-              <span className="text-xs text-red-400 font-medium">Ошибка</span>
-            </div>
           ) : (
             <div className="flex items-center gap-1 ml-2 px-2 py-0.5 bg-green-500/20 rounded-full">
               <Radio className="w-3 h-3 text-green-400 animate-pulse" />
@@ -42,24 +35,15 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button className="p-2 hover:bg-white/10 rounded-md transition-colors">
+          <button type="button" className="p-2 hover:bg-white/10 rounded-md transition-colors">
             <UserPlus className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
           </button>
-          <button className="p-2 hover:bg-white/10 rounded-md transition-colors">
+          <button type="button" className="p-2 hover:bg-white/10 rounded-md transition-colors">
             <Settings className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
           </button>
         </div>
       </div>
-      
-      {/* Error message */}
-      {error && (
-        <div className="mx-4 mt-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          {error}
-        </div>
-      )}
 
-      {/* Voice users grid */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8">
         {connecting && users.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -76,7 +60,6 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
               className="relative group"
             >
               <div className="relative">
-                {/* Avatar */}
                 <div 
                   className={`
                     w-full aspect-square rounded-2xl flex items-center justify-center overflow-hidden text-4xl md:text-6xl
@@ -99,12 +82,10 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
                   )}
                 </div>
                 
-                {/* Speaking indicator */}
                 {user.isSpeaking && (
                   <div className="absolute inset-0 rounded-2xl border-4 border-green-400 animate-pulse pointer-events-none" />
                 )}
                 
-                {/* Status indicators */}
                 <div className="absolute bottom-2 right-2 flex gap-1">
                   {user.isMuted && (
                     <div className="w-6 h-6 md:w-7 md:h-7 rounded-full bg-red-500 flex items-center justify-center shadow-lg">
@@ -119,7 +100,6 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
                 </div>
               </div>
               
-              {/* User name */}
               <div className="mt-2 md:mt-3 text-center">
                 <p className="font-medium text-white text-sm md:text-base truncate">
                   {isYou ? 'Вы' : user.name}
@@ -134,7 +114,6 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
         </div>
         )}
         
-        {/* Empty state */}
         {!connecting && users.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-violet-600/20 to-purple-600/20 flex items-center justify-center mb-4">
@@ -146,9 +125,9 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
         )}
       </div>
       
-      {/* Voice controls */}
       <div className="h-16 md:h-20 px-4 md:px-6 glass-panel border-t border-white/5 flex items-center justify-center gap-3 md:gap-4">
         <button
+          type="button"
           onClick={() => setIsMuted(!isMuted)}
           className={`
             w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-95
@@ -166,6 +145,7 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
         </button>
         
         <button
+          type="button"
           onClick={() => setIsDeafened(!isDeafened)}
           className={`
             w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-95
@@ -185,6 +165,7 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
         <div className="w-px h-6 md:h-8 bg-white/10" />
         
         <button
+          type="button"
           onClick={onLeaveChannel}
           className="w-11 h-11 md:w-12 md:h-12 rounded-xl bg-red-500/20 hover:bg-red-500 flex items-center justify-center transition-all duration-200 group shadow-lg hover:shadow-red-500/50 active:scale-95"
         >
@@ -193,7 +174,7 @@ export function VoiceChannelView({ channel, users, currentUserId, connecting, er
         
         <div className="w-px h-6 md:h-8 bg-white/10" />
         
-        <button className="w-11 h-11 md:w-12 md:h-12 rounded-xl glass-input flex items-center justify-center transition-all duration-200 active:scale-95">
+        <button type="button" className="w-11 h-11 md:w-12 md:h-12 rounded-xl glass-input flex items-center justify-center transition-all duration-200 active:scale-95">
           <Settings className="w-4 h-4 md:w-5 md:h-5 text-gray-400 hover:text-white transition-colors" />
         </button>
       </div>

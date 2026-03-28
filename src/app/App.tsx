@@ -25,6 +25,7 @@ import { mapApiMessageToMessage } from './models';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { ApiError } from './api/client';
+import { toastCopy, toastUserError } from './utils/toastMessages';
 import { useIsMobile } from './components/ui/use-mobile';
 
 
@@ -62,10 +63,12 @@ export default function App() {
   const [loadingChannels, setLoadingChannels] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
+  const [dmUnreadTotal, setDmUnreadTotal] = useState(0);
+  const [pendingDmChannelId, setPendingDmChannelId] = useState<string | null>(null);
   const [voiceUsersByChannel, setVoiceUsersByChannel] = useState<Record<string, VoiceUser[]>>({});
   const [voiceConnectingChannelId, setVoiceConnectingChannelId] = useState<string | null>(null);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
   const activeChannelIdRef = useRef<string | null>(null);
   const subscribedChannelRef = useRef<string | null>(null);
   const desiredChannelRef = useRef<string | null>(null);
@@ -142,12 +145,16 @@ export default function App() {
         if (refreshed) return loadServers();
         logout();
       }
-      toast.error('Не удалось загрузить серверы');
+      toast.error(toastCopy.loadFailed);
       setServers([]);
     } finally {
       setLoading(false);
     }
   }, [accessToken, refreshAccessToken, logout]);
+
+  useEffect(() => {
+    currentUserIdRef.current = user?.id ?? null;
+  }, [user?.id]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -217,9 +224,13 @@ export default function App() {
         if (!msg || !msg.id || !msg.channel_id || !msg.user_id || !msg.created_at) return;
         const channelId = String(msg.channel_id);
         const current = activeChannelIdRef.current;
-        if (current && channelId !== current) {
+        const myId = currentUserIdRef.current;
+        const fromOther = !myId || String(msg.user_id) !== myId;
+        if (fromOther && channelId !== current) {
           setUnreadChannelCounts((prev) => ({ ...prev, [channelId]: (prev[channelId] ?? 0) + 1 }));
         }
+        if (!current || channelId !== current) return;
+
         const mapped = mapApiMessageToMessage(
           {
             id: String(msg.id),
@@ -233,6 +244,8 @@ export default function App() {
             deleted_at: msg.deleted_at ?? null,
             author_username: msg.author_username ?? null,
             author_avatar_url: msg.author_avatar_url ?? null,
+            author_nametag: msg.author_nametag ?? null,
+            author_presence: msg.author_presence ?? null,
           } as any,
           String(msg.channel_id)
         );
@@ -246,6 +259,9 @@ export default function App() {
         'event' in data &&
         (data as any).event === 'message.deleted'
       ) {
+        const delCh = String((data as any).channel_id ?? '');
+        const current = activeChannelIdRef.current;
+        if (delCh && current && delCh !== current) return;
         const messageId = String((data as any).message_id ?? '');
         if (!messageId) return;
         setMessages((prev) => prev.filter((m) => m.id !== messageId));
@@ -262,6 +278,16 @@ export default function App() {
     return () => {
       ws.close();
     };
+  }, [accessToken]);
+
+  /** Закрытие вкладки / уход со страницы — сброс last_seen на сервере. */
+  useEffect(() => {
+    if (!accessToken) return;
+    const onLeave = () => {
+      void chatApi.markOffline().catch(() => {});
+    };
+    window.addEventListener('pagehide', onLeave);
+    return () => window.removeEventListener('pagehide', onLeave);
   }, [accessToken]);
 
   useEffect(() => {
@@ -292,7 +318,7 @@ export default function App() {
           }
           logout();
         } else {
-          toast.error('Не удалось загрузить каналы');
+          toast.error(toastCopy.loadFailed);
         }
         setChannels([]);
       })
@@ -334,7 +360,7 @@ export default function App() {
           }
           logout();
         } else {
-          toast.error('Не удалось загрузить сообщения');
+          toast.error(toastCopy.loadFailed);
         }
         setMessages([]);
       })
@@ -379,6 +405,50 @@ export default function App() {
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const serverChannels = channels.filter((c) => c.serverId === activeServerId || c.server_id === activeServerId);
   const activeChannel = serverChannels.find((c) => c.id === activeChannelId) ?? serverChannels[0] ?? null;
+
+  const serverChannelUnreadSum = useMemo(
+    () => Object.values(unreadChannelCounts).reduce((a, b) => a + b, 0),
+    [unreadChannelCounts]
+  );
+
+  const totalNotificationsUnread = useMemo(
+    () => dmUnreadTotal + serverChannelUnreadSum,
+    [dmUnreadTotal, serverChannelUnreadSum]
+  );
+
+  const serverUnreadById = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const c of channels) {
+      const sid = c.serverId ?? c.server_id ?? '';
+      if (!sid) continue;
+      const u = unreadChannelCounts[c.id] ?? 0;
+      if (u === 0) continue;
+      acc[sid] = (acc[sid] ?? 0) + u;
+    }
+    return acc;
+  }, [channels, unreadChannelCounts]);
+
+  const handleOpenDmWithUser = useCallback(
+    async (targetUserId: string) => {
+      try {
+        const dm = await chatApi.createOrGetDm(targetUserId);
+        setActiveServerId(HOME_SERVER_ID);
+        setPendingDmChannelId(dm.id);
+        setIsMobileMenuOpen(false);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          const ok = await refreshAccessToken();
+          if (ok) return handleOpenDmWithUser(targetUserId);
+          logout();
+          return;
+        }
+        toastUserError(e);
+      }
+    },
+    [refreshAccessToken, logout]
+  );
+
+  const consumePendingDmChannel = useCallback(() => setPendingDmChannelId(null), []);
 
   const voiceChannelIdsKey = useMemo(() => {
     if (!activeServerId || activeServerId === HOME_SERVER_ID) return '';
@@ -475,11 +545,9 @@ export default function App() {
 
     const ch = serverChannels.find((c) => c.id === newChannelId);
     if (ch && ch.type === 'voice') {
-      setVoiceError(null);
       void joinVoiceChannel(ch);
     } else {
       // Переход в текстовый канал: выходим из голосового канала
-      setVoiceError(null);
       cleanupVoiceRuntime();
       if (activeVoiceConnectionRef.current) {
         void activeVoiceConnectionRef.current.disconnect();
@@ -490,7 +558,6 @@ export default function App() {
 
   const joinVoiceChannel = async (channel: Channel, options?: { preserveRecoveryState?: boolean }) => {
     if (!user) return;
-    setVoiceError(null);
     setVoiceConnectingChannelId(channel.id);
     cleanupVoiceRuntime(!(options?.preserveRecoveryState ?? false));
     if (activeVoiceConnectionRef.current) {
@@ -524,7 +591,7 @@ export default function App() {
         void current.ping().catch(async () => {
           if (voiceRecoveryInProgressRef.current) return;
           if (voiceRecoveryAttemptsRef.current >= 3) {
-            setVoiceError('Потеряно соединение с голосовым сервером. Переподключитесь к каналу.');
+            toast.error(toastCopy.voiceLost);
             cleanupVoiceRuntime();
             return;
           }
@@ -532,9 +599,8 @@ export default function App() {
           voiceRecoveryAttemptsRef.current += 1;
           try {
             await joinVoiceChannel(channel, { preserveRecoveryState: true });
-            setVoiceError(null);
           } catch {
-            // joinVoiceChannel сам проставляет ошибку
+            // joinVoiceChannel сам показывает toast при фатальной ошибке
           } finally {
             voiceRecoveryInProgressRef.current = false;
           }
@@ -555,7 +621,7 @@ export default function App() {
         conn.onDisconnected(() => {
           if (voiceRecoveryInProgressRef.current) return;
           if (voiceRecoveryAttemptsRef.current >= 3) {
-            setVoiceError('WebSocket голосового канала закрыт. Переподключитесь к каналу.');
+            toast.error(toastCopy.voiceLost);
             cleanupVoiceRuntime();
             return;
           }
@@ -569,9 +635,7 @@ export default function App() {
       startHeartbeat();
       voiceRecoveryAttemptsRef.current = 0;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Не удалось подключиться к голосовому каналу';
-      setVoiceError(message);
-      toast.error(message);
+      toastUserError(err);
       activeVoiceConnectionRef.current = null;
       cleanupVoiceRuntime();
     } finally {
@@ -622,7 +686,7 @@ export default function App() {
         }
         logout();
       } else {
-        toast.error('Не удалось загрузить каналы');
+        toast.error(toastCopy.loadFailed);
       }
     } finally {
       setLoadingChannels(false);
@@ -670,13 +734,7 @@ export default function App() {
           if (ok) return attempt();
           logout();
         }
-        toast.error(
-          e instanceof ApiError
-            ? e.message
-            : type === 'text'
-            ? 'Не удалось создать текстовый канал'
-            : 'Не удалось создать голосовой канал'
-        );
+        toastUserError(e);
         throw e;
       }
     };
@@ -697,7 +755,7 @@ export default function App() {
           if (ok) return handleRenameChannel(channelId, newName);
           logout();
         }
-        toast.error(e instanceof ApiError ? e.message : 'Не удалось переименовать канал');
+        toastUserError(e);
         throw e;
       }
     },
@@ -720,7 +778,7 @@ export default function App() {
           if (ok) return handleDeleteChannel(channelId);
           logout();
         }
-        toast.error(e instanceof ApiError ? e.message : 'Не удалось удалить канал');
+        toastUserError(e);
         throw e;
       }
     },
@@ -741,7 +799,7 @@ export default function App() {
         if (ok) return handleSendMessage(content);
         logout();
       }
-      toast.error(e instanceof ApiError ? e.message : 'Не удалось отправить сообщение');
+      toastUserError(e);
     }
   };
 
@@ -777,7 +835,6 @@ export default function App() {
   );
 
   const handleLeaveVoiceChannel = () => {
-    setVoiceError(null);
     cleanupVoiceRuntime();
     if (activeVoiceConnectionRef.current) {
       void activeVoiceConnectionRef.current.disconnect();
@@ -899,6 +956,8 @@ export default function App() {
             onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
             onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
             currentUserAvatar={user?.avatar_url}
+            homeUnreadCount={dmUnreadTotal}
+            serverUnreadById={serverUnreadById}
           />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -931,6 +990,8 @@ export default function App() {
           onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
           onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
           currentUserAvatar={user?.avatar_url}
+          homeUnreadCount={dmUnreadTotal}
+          serverUnreadById={serverUnreadById}
         />
       </div>
       {isHomeView ? (
@@ -944,6 +1005,11 @@ export default function App() {
             currentUserAvatar={user?.avatar_url}
             serverPanelVisible={homeServerPanelVisible}
             onServerPanelVisibleChange={setHomeServerPanelVisible}
+            pendingDmChannelId={pendingDmChannelId}
+            onConsumedPendingDm={consumePendingDmChannel}
+            onDmUnreadTotalChange={setDmUnreadTotal}
+            notificationsUnreadTotal={totalNotificationsUnread}
+            onOpenDmWithUser={handleOpenDmWithUser}
           />
         </div>
       ) : activeServer != null ? (
@@ -968,6 +1034,7 @@ export default function App() {
                 currentUserAvatar={user?.avatar_url}
                 onRenameChannel={handleRenameChannel}
                 onDeleteChannel={handleDeleteChannel}
+                notificationsUnreadTotal={totalNotificationsUnread}
               />
             </div>
           )}
@@ -991,6 +1058,8 @@ export default function App() {
                   onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
                   onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
                   currentUserAvatar={user?.avatar_url}
+                  homeUnreadCount={dmUnreadTotal}
+                  serverUnreadById={serverUnreadById}
                 />
                 {activeServer && (
                   <ChannelList
@@ -1010,6 +1079,7 @@ export default function App() {
                     currentUserAvatar={user?.avatar_url}
                     onRenameChannel={handleRenameChannel}
                     onDeleteChannel={handleDeleteChannel}
+                    notificationsUnreadTotal={totalNotificationsUnread}
                   />
                 )}
               </div>
@@ -1025,6 +1095,7 @@ export default function App() {
                       onDeleteMessage={handleDeleteMessage}
                       loading={loadingMessages}
                       onLoadMore={handleLoadMoreMessages}
+                      onOpenDmWithUser={handleOpenDmWithUser}
                     />
                   ) : (
                     <VoiceChannelView
@@ -1032,7 +1103,6 @@ export default function App() {
                       users={voiceUsersByChannel[activeChannel.id] ?? []}
                       currentUserId={user?.id}
                       connecting={voiceConnectingChannelId === activeChannel.id}
-                      error={voiceError}
                       onLeaveChannel={handleLeaveVoiceChannel}
                     />
                   )}
@@ -1054,6 +1124,11 @@ export default function App() {
             onOpenAppSettings={() => pushOverlay({ kind: 'appSettings' })}
             onOpenNotifications={() => pushOverlay({ kind: 'notifications' })}
             currentUserAvatar={user?.avatar_url}
+            pendingDmChannelId={pendingDmChannelId}
+            onConsumedPendingDm={consumePendingDmChannel}
+            onDmUnreadTotalChange={setDmUnreadTotal}
+            notificationsUnreadTotal={totalNotificationsUnread}
+            onOpenDmWithUser={handleOpenDmWithUser}
           />
         </div>
       )}

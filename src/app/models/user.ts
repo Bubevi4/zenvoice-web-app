@@ -9,6 +9,9 @@ export interface User {
   /** Присутствует после логина/me; может отсутствовать в поиске и DM. */
   email?: string;
   avatar_url?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
 }
 
 /** Минимальный профиль пользователя (без email) — для списков, DM, поиска */

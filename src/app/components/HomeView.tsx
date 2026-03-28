@@ -15,6 +15,8 @@ import type { DMChannel } from '../api/chat';
 import { ApiError } from '../api/client';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+import { UnreadBadge } from './UnreadBadge';
+import { toastCopy, toastUserError } from '../utils/toastMessages';
 
 interface HomeViewProps {
   onRefreshToken: () => Promise<boolean>;
@@ -26,6 +28,13 @@ interface HomeViewProps {
   /** На мобильном: видна ли панель серверов (для свайпов) */
   serverPanelVisible?: boolean;
   onServerPanelVisibleChange?: (visible: boolean) => void;
+  /** Открыть этот DM после перехода с сервера (кнопка «Написать» в профиле). */
+  pendingDmChannelId?: string | null;
+  onConsumedPendingDm?: () => void;
+  onDmUnreadTotalChange?: (total: number) => void;
+  /** Сумма непрочитанных DM + серверных каналов — бейдж на колокольчике. */
+  notificationsUnreadTotal?: number;
+  onOpenDmWithUser?: (userId: string) => void | Promise<void>;
 }
 
 const SWIPE_THRESHOLD_PX = 60;
@@ -39,6 +48,11 @@ export function HomeView({
   currentUserAvatar,
   serverPanelVisible = false,
   onServerPanelVisibleChange,
+  pendingDmChannelId = null,
+  onConsumedPendingDm,
+  onDmUnreadTotalChange,
+  notificationsUnreadTotal = 0,
+  onOpenDmWithUser,
 }: HomeViewProps) {
   const { user, accessToken } = useAuth();
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
@@ -60,6 +74,11 @@ export function HomeView({
   const activeDmIdRef = useRef<string | null>(null);
   const lastOpenDmIdRef = useRef<string | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    currentUserIdRef.current = user?.id ?? null;
+  }, [user?.id]);
 
   const loadDmChannels = useCallback(async () => {
     setLoadingDms(true);
@@ -72,7 +91,7 @@ export function HomeView({
         if (ok) return loadDmChannels();
         onLogout();
       }
-      toast.error('Не удалось загрузить чаты');
+      toast.error(toastCopy.loadFailed);
       setDmChannels([]);
     } finally {
       setLoadingDms(false);
@@ -82,6 +101,18 @@ export function HomeView({
   useEffect(() => {
     loadDmChannels();
   }, [loadDmChannels]);
+
+  useEffect(() => {
+    if (!pendingDmChannelId) return;
+    setActiveDmId(pendingDmChannelId);
+    void loadDmChannels();
+    onConsumedPendingDm?.();
+  }, [pendingDmChannelId, onConsumedPendingDm, loadDmChannels]);
+
+  useEffect(() => {
+    const sum = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+    onDmUnreadTotalChange?.(sum);
+  }, [unreadCounts, onDmUnreadTotalChange]);
 
   const handleSearch = useCallback(async () => {
     const q = searchQuery.replace(/^@/, '').trim();
@@ -140,7 +171,7 @@ export function HomeView({
         if (ok) return handleStartDm(targetUserId);
         onLogout();
       }
-      toast.error(e instanceof ApiError ? e.message : 'Не удалось создать чат');
+      toastUserError(e);
     }
   }, [onRefreshToken, onLogout]);
 
@@ -205,10 +236,11 @@ export function HomeView({
         const msg = (data as any).message;
         if (!msg || !msg.id || !msg.channel_id || !msg.user_id || !msg.created_at) return;
 
-        // Интересуют только сообщения текущего активного DM
         const channelId = String(msg.channel_id);
         const currentDmId = activeDmIdRef.current;
-        if (currentDmId && channelId !== currentDmId) {
+        const myId = currentUserIdRef.current;
+        const fromOther = !myId || String(msg.user_id) !== myId;
+        if (fromOther && channelId !== currentDmId) {
           setUnreadCounts((prev) => ({ ...prev, [channelId]: (prev[channelId] ?? 0) + 1 }));
         }
         if (!currentDmId || channelId !== currentDmId) return;
@@ -226,6 +258,8 @@ export function HomeView({
             deleted_at: msg.deleted_at ?? null,
             author_username: msg.author_username ?? null,
             author_avatar_url: msg.author_avatar_url ?? null,
+            author_nametag: msg.author_nametag ?? null,
+            author_presence: msg.author_presence ?? null,
           } as any,
           String(msg.channel_id)
         );
@@ -239,6 +273,9 @@ export function HomeView({
         'event' in data &&
         (data as any).event === 'message.deleted'
       ) {
+        const delCh = String((data as any).channel_id ?? '');
+        const currentDm = activeDmIdRef.current;
+        if (delCh && currentDm && delCh !== currentDm) return;
         const messageId = String((data as any).message_id ?? '');
         if (!messageId) return;
         setMessages((prev) => prev.filter((m) => m.id !== messageId));
@@ -293,7 +330,7 @@ export function HomeView({
           }
           onLogout();
         } else {
-          toast.error('Не удалось загрузить сообщения');
+          toast.error(toastCopy.loadFailed);
         }
         setMessages([]);
       })
@@ -373,7 +410,7 @@ export function HomeView({
           if (ok) return handleSendMessage(content);
           onLogout();
         }
-        toast.error(e instanceof ApiError ? e.message : 'Не удалось отправить');
+        toastUserError(e);
       }
     },
     [activeDmId, activeDm, onRefreshToken, onLogout]
@@ -394,7 +431,7 @@ export function HomeView({
           if (ok) return handleSendVideoCircle(file, durationMs);
           onLogout();
         }
-        toast.error(e instanceof ApiError ? e.message : 'Не удалось отправить видео');
+        toastUserError(e);
       }
     },
     [activeDmId, activeDm, onRefreshToken, onLogout]
@@ -522,11 +559,9 @@ export function HomeView({
                   />
                   <div className="min-w-0 flex-1 relative">
                     <p className="font-medium truncate">{dm.other_user.username}</p>
-                    {unreadCounts[dm.id] > 0 && (
-                      <span className="absolute -top-0.5 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-violet-500 text-[11px] font-semibold text-white">
-                        {unreadCounts[dm.id] > 99 ? '99+' : unreadCounts[dm.id]}
-                      </span>
-                    )}
+                    <span className="absolute -top-0.5 right-0 flex min-w-[18px] justify-center pointer-events-none">
+                      <UnreadBadge count={unreadCounts[dm.id] ?? 0} />
+                    </span>
                   </div>
                   <MessageCircle className="w-4 h-4 text-gray-500 flex-shrink-0" />
                 </button>
@@ -560,10 +595,13 @@ export function HomeView({
           </button>
           <button
             onClick={onOpenNotifications}
-            className="p-1.5 hover:bg-white/10 rounded transition-colors shrink-0"
+            className="relative p-1.5 hover:bg-white/10 rounded transition-colors shrink-0"
             title="Уведомления"
           >
             <Bell className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
+            <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] justify-center pointer-events-none">
+              <UnreadBadge count={notificationsUnreadTotal} />
+            </span>
           </button>
         </div>
       </div>
@@ -596,6 +634,7 @@ export function HomeView({
               onSendVideoCircle={handleSendVideoCircle}
               onLoadMore={handleLoadMoreMessages}
               loading={loadingMessages}
+              onOpenDmWithUser={onOpenDmWithUser}
             />
           </>
         ) : (

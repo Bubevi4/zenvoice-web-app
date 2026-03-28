@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Hash, Volume2, ChevronDown, Settings, UserPlus, Bell, Pencil, Trash2 } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, Settings, Bell, Pencil, Trash2, Plus } from 'lucide-react';
 import type { Channel, Server, VoiceUser } from '../models';
 import { UserAvatar } from './UserAvatar';
 import {
@@ -18,6 +18,7 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { UnreadBadge } from './UnreadBadge';
 
 const LONG_PRESS_MS = 500;
 
@@ -38,6 +39,8 @@ interface ChannelListProps {
   currentUserAvatar?: string | null;
   onRenameChannel?: (channelId: string, newName: string) => Promise<void>;
   onDeleteChannel?: (channelId: string) => Promise<void>;
+  /** Сумма непрочитанных по всему приложению — бейдж на колокольчике. */
+  notificationsUnreadTotal?: number;
 }
 
 export function ChannelList({
@@ -57,6 +60,7 @@ export function ChannelList({
   onRenameChannel,
   onDeleteChannel,
   voiceUsersByChannel = {},
+  notificationsUnreadTotal = 0,
 }: ChannelListProps) {
   const [contextMenuChannelId, setContextMenuChannelId] = useState<string | null>(null);
   const [renameChannelId, setRenameChannelId] = useState<string | null>(null);
@@ -163,7 +167,7 @@ export function ChannelList({
             onClick={() => onInviteToServer?.(server.id)}
             className="cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
             Пригласить пользователя
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -183,7 +187,7 @@ export function ChannelList({
               className="text-gray-400 hover:text-white transition-colors"
               title="Создать текстовый канал"
             >
-              <UserPlus className="w-4 h-4" />
+              <Plus className="w-4 h-4" />
             </button>
           </div>
           {textChannels.map((channel) => {
@@ -219,11 +223,7 @@ export function ChannelList({
                   >
                     <Hash className="w-4 h-4 flex-shrink-0" />
                     <span className="text-sm truncate flex-1 min-w-0 text-left">{channel.name}</span>
-                    {unread > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-violet-500 text-[11px] font-semibold text-white shrink-0">
-                        {unread > 99 ? '99+' : unread}
-                      </span>
-                    )}
+                    <UnreadBadge count={unread} className="shrink-0" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -262,7 +262,7 @@ export function ChannelList({
               className="text-gray-400 hover:text-white transition-colors"
               title="Создать голосовой канал"
             >
-              <UserPlus className="w-4 h-4" />
+              <Plus className="w-4 h-4" />
             </button>
           </div>
           {voiceChannels.map((channel) => {
@@ -391,10 +391,13 @@ export function ChannelList({
         </button>
         <button
           onClick={onOpenNotifications}
-          className="p-1.5 hover:bg-white/10 rounded transition-colors shrink-0"
+          className="relative p-1.5 hover:bg-white/10 rounded transition-colors shrink-0"
           title="Уведомления"
         >
           <Bell className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
+          <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] justify-center pointer-events-none">
+            <UnreadBadge count={notificationsUnreadTotal} />
+          </span>
         </button>
       </div>
 

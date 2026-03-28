@@ -273,3 +273,20 @@ export async function postAttachments(
     channelId
   );
 }
+
+export interface MyPrivacyResponse {
+  presence: 'online' | 'dnd';
+}
+
+export async function getMyPrivacy(): Promise<MyPrivacyResponse> {
+  return apiGet<MyPrivacyResponse>(`${CHAT_PREFIX}/users/me/privacy`);
+}
+
+export async function patchMyPrivacy(presence: 'online' | 'dnd'): Promise<MyPrivacyResponse> {
+  return apiPatch<MyPrivacyResponse>(`${CHAT_PREFIX}/users/me/privacy`, { presence });
+}
+
+/** Сообщить серверу, что вкладка закрыта — сброс last_seen (статус «не в сети»). */
+export async function markOffline(): Promise<void> {
+  await apiPost<void>(`${CHAT_PREFIX}/users/me/offline`, {});
+}

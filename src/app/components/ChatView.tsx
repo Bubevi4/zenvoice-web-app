@@ -13,6 +13,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { UserProfileOverlay, type UserPresenceStatus } from './UserProfileOverlay';
+import { toastCopy, toastUserError } from '../utils/toastMessages';
 
 interface ChatViewProps {
   channel: Channel;
@@ -22,6 +24,8 @@ interface ChatViewProps {
   onLoadMore?: () => void;
   loading?: boolean;
   onDeleteMessage?: (messageId: string) => void;
+  /** Открыть ЛС с пользователем (по кнопке в карточке профиля). */
+  onOpenDmWithUser?: (userId: string) => void | Promise<void>;
 }
 
 export function ChatView({
@@ -32,8 +36,17 @@ export function ChatView({
   onLoadMore,
   loading,
   onDeleteMessage,
+  onOpenDmWithUser,
 }: ChatViewProps) {
   const { user } = useAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUser, setProfileUser] = useState<{
+    userId: string;
+    username: string;
+    nametag?: string | null;
+    avatarUrl?: string | null;
+    presence: UserPresenceStatus;
+  } | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -143,7 +156,7 @@ export function ChatView({
           videoInputRef.current.click();
           return;
         }
-        toast.error('Запись видео не поддерживается в этом браузере');
+        toast.error(toastCopy.genericError);
         return;
       }
 
@@ -180,11 +193,7 @@ export function ChatView({
       setIsRecording(true);
     } catch (err) {
       cleanupMedia();
-      const message =
-        err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Доступ к камере/микрофону запрещён'
-          : 'Не удалось запустить запись видео';
-      toast.error(message);
+      toastUserError(err);
     }
   };
 
@@ -269,7 +278,7 @@ export function ChatView({
       await chatApi.postAttachments(channel.id, files);
       toast.success('Файлы отправлены');
     } catch (e) {
-      toast.error('Не удалось отправить файлы');
+      toastUserError(e);
     }
   };
 
@@ -298,7 +307,7 @@ export function ChatView({
       await navigator.clipboard.writeText(message.content);
       toast.success('Текст сообщения скопирован');
     } catch {
-      toast.error('Не удалось скопировать текст');
+      toast.error(toastCopy.copyFailed);
     }
   };
 
@@ -321,13 +330,13 @@ export function ChatView({
       if (!raw) return;
       const selected = Number(raw) - 1;
       if (!Number.isInteger(selected) || selected < 0 || selected >= Math.min(dmChannels.length, 9)) {
-        toast.error('Неверный номер диалога');
+        toast.error(toastCopy.genericError);
         return;
       }
       await chatApi.postMessage(dmChannels[selected].id, message.content);
       toast.success('Сообщение переслано');
     } catch {
-      toast.error('Не удалось переслать сообщение');
+      toastUserError();
     }
   };
 
@@ -335,7 +344,7 @@ export function ChatView({
     const isOwn = user?.id === message.userId;
     if (!isOwn) {
       if (channel.type === 'dm') {
-        toast.error('В личных сообщениях можно удалять только свои сообщения');
+        toast.error(toastCopy.genericError);
       } else {
         toast.info('Удаление чужих сообщений на сервере будет доступно после ролевой модели');
       }
@@ -346,30 +355,53 @@ export function ChatView({
       onDeleteMessage?.(message.id);
       toast.success('Сообщение удалено');
     } catch {
-      toast.error('Не удалось удалить сообщение');
+      toast.error(toastCopy.deleteFailed);
     }
+  };
+
+  const openProfileFromMessage = (message: Message) => {
+    const isSelf = user?.id === message.userId;
+    const avatarRaw = message.userAvatar?.startsWith('http')
+      ? message.userAvatar
+      : message.userAvatar
+        ? `emoji:${message.userAvatar}`
+        : undefined;
+    const presence: UserPresenceStatus = isSelf
+      ? 'online'
+      : message.userPresence ?? 'offline';
+
+    setProfileUser({
+      userId: message.userId,
+      username: message.userName ?? 'Пользователь',
+      nametag: message.userNametag ?? null,
+      avatarUrl: avatarRaw,
+      presence,
+    });
+    setProfileOpen(true);
   };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 glass">
-      {/* Channel header - hidden on mobile (MobileHeader shows instead) */}
-      <div className="hidden md:flex h-12 px-4 items-center justify-between border-b border-white/5 glass">
-        <div className="flex items-center gap-2">
-          <Hash className="w-5 h-5 text-gray-400" />
-          <h3 className="font-semibold text-white">{channel.name}</h3>
+      {/* Шапка канала на десктопе (в ЛС планка не нужна — заголовок в HomeView) */}
+      {channel.type !== 'dm' && (
+        <div className="hidden md:flex h-12 px-4 items-center justify-between border-b border-white/5 glass">
+          <div className="flex items-center gap-2">
+            <Hash className="w-5 h-5 text-gray-400" />
+            <h3 className="font-semibold text-white">{channel.name}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="p-2 hover:bg-white/10 rounded-md transition-colors">
+              <Pin className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
+            </button>
+            <button type="button" className="p-2 hover:bg-white/10 rounded-md transition-colors">
+              <Users className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
+            </button>
+            <button type="button" className="p-2 hover:bg-white/10 rounded-md transition-colors">
+              <Search className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="p-2 hover:bg-white/10 rounded-md transition-colors">
-            <Pin className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
-          </button>
-          <button className="p-2 hover:bg-white/10 rounded-md transition-colors">
-            <Users className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
-          </button>
-          <button className="p-2 hover:bg-white/10 rounded-md transition-colors">
-            <Search className="w-4 h-4 text-gray-400 hover:text-white transition-colors" />
-          </button>
-        </div>
-      </div>
+      )}
       
       {/* Messages — скроллируемая область, можно листать историю */}
       <div
@@ -441,7 +473,14 @@ export function ChatView({
                       onTouchCancel={closeMessageMenuLongPress}
                     >
                   {showAvatar ? (
-                    <div className="flex-shrink-0">
+                    <button
+                      type="button"
+                      className="flex-shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openProfileFromMessage(message);
+                      }}
+                    >
                       <UserAvatar
                         avatarUrl={
                           message.userAvatar?.startsWith('http')
@@ -454,7 +493,7 @@ export function ChatView({
                         size="md"
                         className="w-9 h-9 md:w-10 md:h-10"
                       />
-                    </div>
+                    </button>
                   ) : (
                     <div className="w-9 md:w-10 flex-shrink-0 flex items-start justify-center">
                       <span className="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -555,7 +594,7 @@ export function ChatView({
                           return null;
                         })}
                         {message.content && (
-                          <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 selectable-text">
+                          <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 select-none md:select-text">
                             {message.content
                               .split(/(https?:\/\/[^\s]+)/g)
                               .map((part, idx) =>
@@ -577,7 +616,7 @@ export function ChatView({
                         )}
                       </div>
                 ) : (
-                  <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 selectable-text">
+                  <p className="text-gray-200 text-[14px] md:text-[15px] break-words leading-relaxed min-w-0 select-none md:select-text">
                     {message.content
                       ?.split(/(https?:\/\/[^\s]+)/g)
                       .map((part, idx) =>
@@ -819,6 +858,22 @@ export function ChatView({
           )}
         </form>
       </div>
+
+      {profileUser && (
+        <UserProfileOverlay
+          open={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          userId={profileUser.userId}
+          username={profileUser.username}
+          nametag={profileUser.nametag}
+          avatarUrl={profileUser.avatarUrl}
+          presence={profileUser.presence}
+          onMessageClick={() => {
+            void onOpenDmWithUser?.(profileUser.userId);
+          }}
+          showMessageButton={profileUser.userId !== user?.id}
+        />
+      )}
     </div>
   );
 }

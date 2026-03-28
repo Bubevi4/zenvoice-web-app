@@ -38,6 +38,9 @@ export type MessageAttachment =
       [key: string]: any;
     };
 
+/** Статус автора с бэкенда (по last_seen и privacy_settings). */
+export type AuthorPresence = 'online' | 'offline' | 'dnd';
+
 export interface Message {
   id: string;
   channelId: string;
@@ -46,6 +49,10 @@ export interface Message {
   user_id?: string;
   userName?: string;
   userAvatar?: string;
+  /** Тег @nametag из API сообщений */
+  userNametag?: string;
+  /** Расчёт на сервере */
+  userPresence?: AuthorPresence;
   content: string | null;
   timestamp: Date;
   created_at?: string;
@@ -85,9 +92,16 @@ export interface MessageHistoryResponse {
     deleted_at?: string | null;
     author_username?: string | null;
     author_avatar_url?: string | null;
+    author_nametag?: string | null;
+    author_presence?: string | null;
   }>;
   next_cursor?: string | null;
   has_more?: boolean;
+}
+
+function parseAuthorPresence(s: string | null | undefined): AuthorPresence | undefined {
+  if (s === 'online' || s === 'offline' || s === 'dnd') return s;
+  return undefined;
 }
 
 /** Преобразование сообщения из API в формат UI (ник и аватар из author_* или emoji: префикса). */
@@ -103,6 +117,8 @@ export function mapApiMessageToMessage(
     channelId: channelId,
     userId: item.user_id,
     userName: item.author_username ?? undefined,
+    userNametag: item.author_nametag ?? undefined,
+    userPresence: parseAuthorPresence(item.author_presence ?? undefined),
     userAvatar,
     content: item.content,
     timestamp: new Date(item.created_at),

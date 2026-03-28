@@ -5,6 +5,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiError, setTokenGetter } from '../api/client';
 import * as authApi from '../api/auth';
+import * as chatApi from '../api/chat';
 import type { User } from '../models';
 
 const ACCESS_KEY = 'voiceover_access_token';
@@ -74,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.accessToken]);
 
   const logout = useCallback(() => {
+    void chatApi.markOffline().catch(() => {});
     setState({
       user: null,
       accessToken: null,
@@ -157,6 +159,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       nametag: res.nametag ?? res.username,
       email: res.email,
       avatar_url: res.avatar_url ?? null,
+      phone: res.phone ?? null,
+      birth_date: res.birth_date ?? null,
+      gender: res.gender ?? null,
     };
     setState({
       user,
@@ -175,6 +180,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       nametag: res.nametag ?? res.username,
       email: res.email,
       avatar_url: res.avatar_url ?? null,
+      phone: res.phone ?? null,
+      birth_date: res.birth_date ?? null,
+      gender: res.gender ?? null,
     };
     setState({
       user,
